@@ -1,0 +1,797 @@
+package state
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/andynu/bd-lite-tui/internal/parser"
+)
+
+// State manages the application state and issue data
+type State struct {
+	issues           []*parser.Issue
+	issuesByID       map[string]*parser.Issue
+	readyIssues      []*parser.Issue
+	blockedIssues    []*parser.Issue
+	inProgressIssues []*parser.Issue
+	closedIssues     []*parser.Issue
+	selectedIssue    *parser.Issue
+	filterMode       FilterMode
+	viewMode         ViewMode
+	treeNodes        []*TreeNode
+
+	// Computed blocking state (includes dependency-based blocking)
+	// This is set by categorizeIssues() and used by IsEffectivelyBlocked()
+	effectivelyBlocked map[string]bool
+
+	// Tree collapse state - persists across tree rebuilds
+	// Maps issue ID to collapsed state (true = collapsed)
+	collapsedNodes map[string]bool
+
+	// Filter state
+	priorityFilter map[int]bool              // nil = no filter, otherwise only show these priorities
+	typeFilter     map[parser.IssueType]bool // nil = no filter, otherwise only show these types
+	statusFilter   map[parser.Status]bool    // nil = no filter, otherwise only show these statuses
+	labelFilter    map[string]bool           // nil = no filter, otherwise only show issues with these labels
+}
+
+// FilterMode represents different filtering options
+type FilterMode int
+
+const (
+	FilterAll FilterMode = iota
+	FilterReady
+	FilterBlocked
+	FilterInProgress
+	FilterByPriority
+	FilterByType
+)
+
+// ViewMode represents different view layouts
+type ViewMode int
+
+const (
+	ViewList ViewMode = iota
+	ViewTree
+)
+
+// TreeNode represents a node in the dependency tree
+type TreeNode struct {
+	Issue    *parser.Issue
+	Children []*TreeNode
+	Depth    int
+	// Note: Collapsed state is tracked in State.collapsedNodes map, not here
+	// This keeps TreeNode purely representational and allows state persistence
+}
+
+// New creates a new application state
+func New() *State {
+	return &State{
+		issuesByID:     make(map[string]*parser.Issue),
+		filterMode:     FilterAll,
+		viewMode:       ViewList,
+		collapsedNodes: make(map[string]bool),
+	}
+}
+
+// LoadIssues updates the state with a new set of issues
+func (s *State) LoadIssues(issues []*parser.Issue) {
+	s.issues = issues
+	s.issuesByID = make(map[string]*parser.Issue)
+
+	// Clear categorized lists
+	s.readyIssues = nil
+	s.blockedIssues = nil
+	s.inProgressIssues = nil
+	s.closedIssues = nil
+
+	// Index issues by ID
+	for _, issue := range issues {
+		s.issuesByID[issue.ID] = issue
+	}
+
+	// Categorize issues
+	s.categorizeIssues()
+
+	// Rebuild tree if in tree view mode
+	if s.viewMode == ViewTree {
+		s.buildDependencyTree()
+	}
+}
+
+// categorizeIssues separates issues into ready, blocked, in_progress, and closed
+// This matches bd ready behavior:
+// - An issue is blocked if it has a "blocks" dependency on an open issue
+// - Blocking propagates through parent-child relationships (children of blocked parents are blocked)
+// - "related" and "discovered-from" dependencies do NOT block
+// - Explicit status:blocked does NOT propagate to children
+func (s *State) categorizeIssues() {
+	// Build a map of issues that are blocked by open dependencies
+	// This map is stored in s.effectivelyBlocked for use by IsEffectivelyBlocked()
+	blockedByIssueIDs := make(map[string]bool)
+
+	// Build parent-child map (child ID -> parent ID)
+	parentMap := make(map[string]string)
+	for _, issue := range s.issues {
+		for _, dep := range issue.Dependencies {
+			if dep.Type == parser.DepParentChild {
+				// issue is a child of dep.DependsOnID
+				parentMap[issue.ID] = dep.DependsOnID
+			}
+		}
+	}
+
+	// First pass: Mark issues with direct "blocks" dependencies on open issues
+	for _, issue := range s.issues {
+		for _, dep := range issue.Dependencies {
+			if dep.Type == parser.DepBlocks {
+				// issue depends on dep.DependsOnID (issue is blocked by dep.DependsOnID)
+				targetIssue := s.issuesByID[dep.DependsOnID]
+				if targetIssue != nil && targetIssue.Status != parser.StatusClosed {
+					// This issue is blocked by an open dependency
+					blockedByIssueIDs[issue.ID] = true
+				}
+			}
+		}
+	}
+
+	// Second pass: Propagate blocking through parent-child relationships
+	// If a parent is blocked, all its children are also blocked
+	// Repeat until no changes (for deep hierarchies)
+	changed := true
+	for changed {
+		changed = false
+		for _, issue := range s.issues {
+			if blockedByIssueIDs[issue.ID] {
+				continue // Already blocked
+			}
+			// Check if this issue's parent is blocked
+			if parentID, hasParent := parentMap[issue.ID]; hasParent {
+				if blockedByIssueIDs[parentID] {
+					blockedByIssueIDs[issue.ID] = true
+					changed = true
+				}
+			}
+		}
+	}
+
+	// Store the computed blocking state for use by IsEffectivelyBlocked()
+	s.effectivelyBlocked = blockedByIssueIDs
+
+	// Categorize each issue
+	for _, issue := range s.issues {
+		switch issue.Status {
+		case parser.StatusClosed:
+			s.closedIssues = append(s.closedIssues, issue)
+		case parser.StatusInProgress:
+			s.inProgressIssues = append(s.inProgressIssues, issue)
+		case parser.StatusBlocked:
+			s.blockedIssues = append(s.blockedIssues, issue)
+		case parser.StatusOpen:
+			// Check if actually blocked by dependencies (direct or via parent)
+			if blockedByIssueIDs[issue.ID] {
+				s.blockedIssues = append(s.blockedIssues, issue)
+			} else {
+				s.readyIssues = append(s.readyIssues, issue)
+			}
+		}
+	}
+}
+
+// IsEffectivelyBlocked returns true if the issue is blocked either by:
+// - Explicit status:blocked
+// - A "blocks" dependency on an open issue
+// - Being a child of a blocked parent (transitive)
+// This is useful for rendering where we want consistent status display
+func (s *State) IsEffectivelyBlocked(issueID string) bool {
+	issue := s.issuesByID[issueID]
+	if issue == nil {
+		return false
+	}
+	// Explicit blocked status
+	if issue.Status == parser.StatusBlocked {
+		return true
+	}
+	// Blocked by dependency (computed in categorizeIssues)
+	return s.effectivelyBlocked[issueID]
+}
+
+// applyFilters filters a list of issues based on active filters
+func (s *State) applyFilters(issues []*parser.Issue) []*parser.Issue {
+	if s.priorityFilter == nil && s.typeFilter == nil && s.statusFilter == nil && s.labelFilter == nil {
+		return issues
+	}
+
+	var filtered []*parser.Issue
+	for _, issue := range issues {
+		// Check priority filter
+		if s.priorityFilter != nil && !s.priorityFilter[issue.Priority] {
+			continue
+		}
+
+		// Check type filter
+		if s.typeFilter != nil && !s.typeFilter[issue.IssueType] {
+			continue
+		}
+
+		// Check status filter
+		if s.statusFilter != nil && !s.statusFilter[issue.Status] {
+			continue
+		}
+
+		// Check label filter
+		if s.labelFilter != nil {
+			// Issue must have at least one of the filtered labels
+			hasMatchingLabel := false
+			for _, label := range issue.Labels {
+				if s.labelFilter[label] {
+					hasMatchingLabel = true
+					break
+				}
+			}
+			if !hasMatchingLabel {
+				continue
+			}
+		}
+
+		filtered = append(filtered, issue)
+	}
+	return filtered
+}
+
+// GetReadyIssues returns issues that are ready to work on
+func (s *State) GetReadyIssues() []*parser.Issue {
+	return s.applyFilters(s.readyIssues)
+}
+
+// GetBlockedIssues returns issues that are blocked
+func (s *State) GetBlockedIssues() []*parser.Issue {
+	return s.applyFilters(s.blockedIssues)
+}
+
+// GetInProgressIssues returns issues that are in progress
+func (s *State) GetInProgressIssues() []*parser.Issue {
+	return s.applyFilters(s.inProgressIssues)
+}
+
+// GetClosedIssues returns closed issues
+func (s *State) GetClosedIssues() []*parser.Issue {
+	return s.applyFilters(s.closedIssues)
+}
+
+// GetAllIssues returns all issues
+func (s *State) GetAllIssues() []*parser.Issue {
+	return s.issues
+}
+
+// GetIssueByID returns an issue by its ID
+func (s *State) GetIssueByID(id string) *parser.Issue {
+	return s.issuesByID[id]
+}
+
+// SetSelectedIssue sets the currently selected issue
+func (s *State) SetSelectedIssue(issue *parser.Issue) {
+	s.selectedIssue = issue
+}
+
+// GetSelectedIssue returns the currently selected issue
+func (s *State) GetSelectedIssue() *parser.Issue {
+	return s.selectedIssue
+}
+
+// SetViewMode sets the current view mode
+func (s *State) SetViewMode(mode ViewMode) {
+	s.viewMode = mode
+	if mode == ViewTree {
+		s.buildDependencyTree()
+	}
+}
+
+// GetViewMode returns the current view mode
+func (s *State) GetViewMode() ViewMode {
+	return s.viewMode
+}
+
+// ToggleViewMode switches between list and tree view
+func (s *State) ToggleViewMode() ViewMode {
+	if s.viewMode == ViewList {
+		s.SetViewMode(ViewTree)
+	} else {
+		s.SetViewMode(ViewList)
+	}
+	return s.viewMode
+}
+
+// GetTreeNodes returns the tree structure for tree view
+func (s *State) GetTreeNodes() []*TreeNode {
+	return s.treeNodes
+}
+
+// IsCollapsed returns true if the given issue is collapsed in tree view
+// Uses smart defaults (collapse if no active work in subtree) when no explicit state is set
+func (s *State) IsCollapsed(issueID string) bool {
+	collapsed, _ := s.GetCollapseState(issueID)
+	return collapsed
+}
+
+// ToggleCollapse toggles the collapse state for an issue and returns the new state
+// Takes into account smart defaults when toggling for the first time
+func (s *State) ToggleCollapse(issueID string) bool {
+	currentState := s.IsCollapsed(issueID) // Gets smart default if not explicitly set
+	s.collapsedNodes[issueID] = !currentState
+	return s.collapsedNodes[issueID]
+}
+
+// SetCollapsed sets the collapse state for an issue
+func (s *State) SetCollapsed(issueID string, collapsed bool) {
+	if collapsed {
+		s.collapsedNodes[issueID] = true
+	} else {
+		delete(s.collapsedNodes, issueID)
+	}
+}
+
+// HasChildren returns true if the issue has children in the tree
+// This is useful to know whether the collapse toggle is meaningful
+func (s *State) HasChildren(issueID string) bool {
+	// Search in tree nodes recursively for this issue
+	for _, node := range s.treeNodes {
+		if found := s.findNodeWithChildren(node, issueID); found {
+			return true
+		}
+	}
+	return false
+}
+
+// findNodeWithChildren recursively searches for an issue and returns true if it has children
+func (s *State) findNodeWithChildren(node *TreeNode, issueID string) bool {
+	if node.Issue.ID == issueID {
+		return len(node.Children) > 0
+	}
+	for _, child := range node.Children {
+		if found := s.findNodeWithChildren(child, issueID); found {
+			return true
+		}
+	}
+	return false
+}
+
+// SubtreeHasActiveWork returns true if any issue in the subtree (children) is in_progress
+// This is used for smart collapse defaults - expand nodes with active work
+func (s *State) SubtreeHasActiveWork(issueID string) bool {
+	for _, node := range s.treeNodes {
+		if found, hasActive := s.findNodeAndCheckActive(node, issueID); found {
+			return hasActive
+		}
+	}
+	return false
+}
+
+// findNodeAndCheckActive finds a node by ID and checks if its subtree has active work
+// Returns (found, hasActiveWork)
+func (s *State) findNodeAndCheckActive(node *TreeNode, issueID string) (bool, bool) {
+	if node.Issue.ID == issueID {
+		return true, s.subtreeHasActiveWork(node)
+	}
+	for _, child := range node.Children {
+		if found, hasActive := s.findNodeAndCheckActive(child, issueID); found {
+			return found, hasActive
+		}
+	}
+	return false, false
+}
+
+// subtreeHasActiveWork checks if the node or any of its descendants are in_progress
+func (s *State) subtreeHasActiveWork(node *TreeNode) bool {
+	// Check children only (not the node itself - we want to know about subtree)
+	for _, child := range node.Children {
+		if child.Issue.Status == parser.StatusInProgress {
+			return true
+		}
+		if s.subtreeHasActiveWork(child) {
+			return true
+		}
+	}
+	return false
+}
+
+// ShouldDefaultCollapse returns whether a node should be collapsed by default
+// (when no explicit user preference is set)
+// Logic: collapse if subtree has NO active work, expand if it does
+func (s *State) ShouldDefaultCollapse(issueID string) bool {
+	return !s.SubtreeHasActiveWork(issueID)
+}
+
+// GetCollapseState returns the collapse state for an issue, using smart defaults
+// if no explicit state has been set. Returns (isCollapsed, isExplicitlySet)
+func (s *State) GetCollapseState(issueID string) (bool, bool) {
+	if collapsed, exists := s.collapsedNodes[issueID]; exists {
+		return collapsed, true
+	}
+	// No explicit state - use smart default
+	return s.ShouldDefaultCollapse(issueID), false
+}
+
+// GetCollapsedNodes returns a copy of the collapsed nodes map for persistence
+func (s *State) GetCollapsedNodes() map[string]bool {
+	result := make(map[string]bool)
+	for k, v := range s.collapsedNodes {
+		result[k] = v
+	}
+	return result
+}
+
+// SetCollapsedNodes sets the collapsed nodes map (for loading from persistence)
+func (s *State) SetCollapsedNodes(nodes map[string]bool) {
+	s.collapsedNodes = make(map[string]bool)
+	for k, v := range nodes {
+		s.collapsedNodes[k] = v
+	}
+}
+
+// ExpandAll expands all nodes in the tree (clears all collapse state)
+// Returns the number of nodes affected
+func (s *State) ExpandAll() int {
+	count := 0
+	s.expandAllNodes(s.treeNodes, &count)
+	return count
+}
+
+// expandAllNodes recursively sets all nodes with children to expanded
+func (s *State) expandAllNodes(nodes []*TreeNode, count *int) {
+	for _, node := range nodes {
+		if len(node.Children) > 0 {
+			// Only count if it was actually collapsed (explicit or smart default)
+			if s.IsCollapsed(node.Issue.ID) {
+				*count++
+			}
+			// Set explicit expanded state (false overrides smart defaults)
+			s.collapsedNodes[node.Issue.ID] = false
+			s.expandAllNodes(node.Children, count)
+		}
+	}
+}
+
+// CollapseAll collapses all parent nodes in the tree
+// Returns the number of nodes affected
+func (s *State) CollapseAll() int {
+	count := 0
+	s.collapseAllNodes(s.treeNodes, &count)
+	return count
+}
+
+// collapseAllNodes recursively sets all nodes with children to collapsed
+func (s *State) collapseAllNodes(nodes []*TreeNode, count *int) {
+	for _, node := range nodes {
+		if len(node.Children) > 0 {
+			// Only count if it wasn't already collapsed (explicit or smart default)
+			if !s.IsCollapsed(node.Issue.ID) {
+				*count++
+			}
+			s.collapsedNodes[node.Issue.ID] = true
+			// Still recurse to collapse nested children
+			s.collapseAllNodes(node.Children, count)
+		}
+	}
+}
+
+// buildDependencyTree constructs a tree structure from issue dependencies
+func (s *State) buildDependencyTree() {
+	s.treeNodes = nil
+
+	// Build maps for parent-child and blocks relationships
+	childrenMap := make(map[string][]*parser.Issue)       // parent ID -> children
+	blockedByMap := make(map[string][]*parser.Issue)      // blocker ID -> blocked issues
+	hasIncomingDep := make(map[string]bool)               // issues that have parents or blockers
+	idPrefixChildren := make(map[string][]*parser.Issue)  // parent ID -> children by ID prefix (e.g., "epic-1" -> ["epic-1.1", "epic-1.2"])
+
+	// Build set of open issue IDs for O(1) parent lookup
+	openIssueIDs := make(map[string]*parser.Issue, len(s.issues))
+	for _, issue := range s.issues {
+		if issue.Status != parser.StatusClosed {
+			openIssueIDs[issue.ID] = issue
+		}
+	}
+
+	// First pass: build relationship maps
+	for _, issue := range s.issues {
+		// Skip closed issues in tree view
+		if issue.Status == parser.StatusClosed {
+			continue
+		}
+
+		// Check for ID-based parent-child relationship (e.g., tui-y4h.1 is child of tui-y4h)
+		// Find parent by looking for the longest prefix before the last dot.
+		// E.g., "tui-y4h.2.1" -> check "tui-y4h.2" first, then "tui-y4h"
+		for i := len(issue.ID) - 1; i >= 0; i-- {
+			if issue.ID[i] == '.' {
+				candidateParentID := issue.ID[:i]
+				if _, ok := openIssueIDs[candidateParentID]; ok {
+					idPrefixChildren[candidateParentID] = append(idPrefixChildren[candidateParentID], issue)
+					hasIncomingDep[issue.ID] = true
+					break
+				}
+			}
+		}
+
+		for _, dep := range issue.Dependencies {
+			switch dep.Type {
+			case parser.DepParentChild:
+				// issue is a child of dep.DependsOnID
+				parent := s.issuesByID[dep.DependsOnID]
+				if parent != nil && parent.Status != parser.StatusClosed {
+					childrenMap[dep.DependsOnID] = append(childrenMap[dep.DependsOnID], issue)
+					hasIncomingDep[issue.ID] = true
+				}
+			case parser.DepBlocks:
+				// issue depends on (is blocked by) dep.DependsOnID
+				blocker := s.issuesByID[dep.DependsOnID]
+				if blocker != nil && blocker.Status != parser.StatusClosed {
+					blockedByMap[dep.DependsOnID] = append(blockedByMap[dep.DependsOnID], issue)
+					hasIncomingDep[issue.ID] = true
+				}
+			}
+		}
+	}
+
+	// Merge ID-based children into childrenMap
+	for parentID, children := range idPrefixChildren {
+		childrenMap[parentID] = append(childrenMap[parentID], children...)
+	}
+
+	// Second pass: find root nodes
+	// Epics are always root nodes (even if they have dependencies)
+	// Non-epics are roots only if they have no incoming dependencies
+	var epicRoots []*parser.Issue
+	var regularRoots []*parser.Issue
+
+	for _, issue := range s.issues {
+		if issue.Status == parser.StatusClosed {
+			continue
+		}
+
+		if issue.IssueType == parser.TypeEpic {
+			epicRoots = append(epicRoots, issue)
+		} else if !hasIncomingDep[issue.ID] {
+			regularRoots = append(regularRoots, issue)
+		}
+	}
+
+	// Build tree recursively from roots
+	// First add epics (they get top priority)
+	visited := make(map[string]bool)
+	for _, epic := range epicRoots {
+		node := s.buildTreeNode(epic, 0, childrenMap, blockedByMap, visited)
+		if node != nil {
+			s.treeNodes = append(s.treeNodes, node)
+		}
+	}
+
+	// Then add regular root issues that weren't already visited as children of epics
+	for _, root := range regularRoots {
+		if !visited[root.ID] {
+			node := s.buildTreeNode(root, 0, childrenMap, blockedByMap, visited)
+			if node != nil {
+				s.treeNodes = append(s.treeNodes, node)
+			}
+		}
+	}
+}
+
+// maxTreeDepth is the maximum allowed nesting depth for tree building.
+// Prevents stack overflow with pathological dependency chains.
+const maxTreeDepth = 50
+
+// buildTreeNode recursively builds a tree node and its children
+func (s *State) buildTreeNode(issue *parser.Issue, depth int, childrenMap map[string][]*parser.Issue, blockedByMap map[string][]*parser.Issue, visited map[string]bool) *TreeNode {
+	// Prevent cycles
+	if visited[issue.ID] {
+		return nil
+	}
+	// Prevent stack overflow with deeply nested trees
+	if depth >= maxTreeDepth {
+		return nil
+	}
+	visited[issue.ID] = true
+
+	node := &TreeNode{
+		Issue:    issue,
+		Children: nil,
+		Depth:    depth,
+	}
+
+	// Add children (from parent-child relationships)
+	if children, ok := childrenMap[issue.ID]; ok {
+		for _, child := range children {
+			if childNode := s.buildTreeNode(child, depth+1, childrenMap, blockedByMap, visited); childNode != nil {
+				node.Children = append(node.Children, childNode)
+			}
+		}
+	}
+
+	// Add blocked issues (from blocks relationships)
+	if blocked, ok := blockedByMap[issue.ID]; ok {
+		for _, blockedIssue := range blocked {
+			if blockedNode := s.buildTreeNode(blockedIssue, depth+1, childrenMap, blockedByMap, visited); blockedNode != nil {
+				node.Children = append(node.Children, blockedNode)
+			}
+		}
+	}
+
+	return node
+}
+
+// TogglePriorityFilter toggles a priority in the filter
+func (s *State) TogglePriorityFilter(priority int) {
+	if s.priorityFilter == nil {
+		s.priorityFilter = make(map[int]bool)
+	}
+
+	if s.priorityFilter[priority] {
+		delete(s.priorityFilter, priority)
+		// If empty, set to nil to disable filtering
+		if len(s.priorityFilter) == 0 {
+			s.priorityFilter = nil
+		}
+	} else {
+		s.priorityFilter[priority] = true
+	}
+}
+
+// ToggleTypeFilter toggles an issue type in the filter
+func (s *State) ToggleTypeFilter(issueType parser.IssueType) {
+	if s.typeFilter == nil {
+		s.typeFilter = make(map[parser.IssueType]bool)
+	}
+
+	if s.typeFilter[issueType] {
+		delete(s.typeFilter, issueType)
+		if len(s.typeFilter) == 0 {
+			s.typeFilter = nil
+		}
+	} else {
+		s.typeFilter[issueType] = true
+	}
+}
+
+// ToggleStatusFilter toggles a status in the filter
+func (s *State) ToggleStatusFilter(status parser.Status) {
+	if s.statusFilter == nil {
+		s.statusFilter = make(map[parser.Status]bool)
+	}
+
+	if s.statusFilter[status] {
+		delete(s.statusFilter, status)
+		if len(s.statusFilter) == 0 {
+			s.statusFilter = nil
+		}
+	} else {
+		s.statusFilter[status] = true
+	}
+}
+
+// ToggleLabelFilter toggles a label in the filter
+func (s *State) ToggleLabelFilter(label string) {
+	if s.labelFilter == nil {
+		s.labelFilter = make(map[string]bool)
+	}
+
+	if s.labelFilter[label] {
+		delete(s.labelFilter, label)
+		if len(s.labelFilter) == 0 {
+			s.labelFilter = nil
+		}
+	} else {
+		s.labelFilter[label] = true
+	}
+}
+
+// ClearAllFilters removes all active filters
+func (s *State) ClearAllFilters() {
+	s.priorityFilter = nil
+	s.typeFilter = nil
+	s.statusFilter = nil
+	s.labelFilter = nil
+}
+
+// IsPriorityFiltered returns true if the given priority is in the active filter
+func (s *State) IsPriorityFiltered(priority int) bool {
+	return s.priorityFilter != nil && s.priorityFilter[priority]
+}
+
+// IsTypeFiltered returns true if the given type is in the active filter
+func (s *State) IsTypeFiltered(issueType parser.IssueType) bool {
+	return s.typeFilter != nil && s.typeFilter[issueType]
+}
+
+// IsStatusFiltered returns true if the given status is in the active filter
+func (s *State) IsStatusFiltered(status parser.Status) bool {
+	return s.statusFilter != nil && s.statusFilter[status]
+}
+
+// IsLabelFiltered returns true if the given label is in the active filter
+func (s *State) IsLabelFiltered(label string) bool {
+	return s.labelFilter != nil && s.labelFilter[label]
+}
+
+// HasActiveFilters returns true if any filters are active
+func (s *State) HasActiveFilters() bool {
+	return s.priorityFilter != nil || s.typeFilter != nil || s.statusFilter != nil || s.labelFilter != nil
+}
+
+// GetActiveFilters returns a human-readable description of active filters
+func (s *State) GetActiveFilters() string {
+	if !s.HasActiveFilters() {
+		return ""
+	}
+
+	var filters []string
+
+	// Priority filters
+	if s.priorityFilter != nil {
+		var priorities []string
+		for p := 0; p <= 4; p++ {
+			if s.priorityFilter[p] {
+				priorities = append(priorities, fmt.Sprintf("P%d", p))
+			}
+		}
+		if len(priorities) > 0 {
+			filters = append(filters, "Priority: "+strings.Join(priorities, ","))
+		}
+	}
+
+	// Type filters
+	if s.typeFilter != nil {
+		var types []string
+		for _, t := range []parser.IssueType{parser.TypeBug, parser.TypeFeature, parser.TypeTask, parser.TypeEpic, parser.TypeChore} {
+			if s.typeFilter[t] {
+				types = append(types, string(t))
+			}
+		}
+		if len(types) > 0 {
+			filters = append(filters, "Type: "+strings.Join(types, ","))
+		}
+	}
+
+	// Status filters
+	if s.statusFilter != nil {
+		var statuses []string
+		for _, st := range []parser.Status{parser.StatusOpen, parser.StatusInProgress, parser.StatusBlocked, parser.StatusClosed} {
+			if s.statusFilter[st] {
+				statuses = append(statuses, string(st))
+			}
+		}
+		if len(statuses) > 0 {
+			filters = append(filters, "Status: "+strings.Join(statuses, ","))
+		}
+	}
+
+	// Label filters
+	if s.labelFilter != nil {
+		var labels []string
+		for label := range s.labelFilter {
+			labels = append(labels, label)
+		}
+		if len(labels) > 0 {
+			filters = append(filters, "Label: "+strings.Join(labels, ","))
+		}
+	}
+
+	return strings.Join(filters, " | ")
+}
+
+// GetAllLabels returns all unique labels across all issues
+func (s *State) GetAllLabels() []string {
+	labelSet := make(map[string]bool)
+	for _, issue := range s.issues {
+		for _, label := range issue.Labels {
+			labelSet[label] = true
+		}
+	}
+
+	labels := make([]string, 0, len(labelSet))
+	for label := range labelSet {
+		labels = append(labels, label)
+	}
+	return labels
+}

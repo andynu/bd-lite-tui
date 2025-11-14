@@ -1,0 +1,136 @@
+# Changelog
+
+All notable changes to bd-tui will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.3.0] - 2026-02-10
+
+### Fixed
+- **ESC in detail panel** no longer hides the pane — it returns focus to the issue list, matching the symmetric Tab-in/ESC-out expectation
+- **Tree view indentation** — collapse indicator `[-]` was being eaten by tview's color parser, causing misaligned tree branches. Replaced with unicode triangles (▶/▼)
+- **O(n²) parent detection** in tree builder replaced with O(n) map-based lookup, preventing slowdowns with large issue counts
+
+### Added
+- **Position indicator** in issue list title (e.g., "Issues [List] 3/42") updates on navigation
+- **Empty state guidance** — shows "Press 'a' to create an issue" when list is empty, or "Press 'f' to modify filters" when filters produce zero results
+- **Quick Start section** at top of help screen with the 6 essential keys for new users
+- **Filter active banner** — prominent "⊘ FILTERED" indicator at top of issue list when filters are active
+- **Startup check for bd CLI** — warns if `bd` is not in PATH so users know issue updates won't work
+- **Max recursion depth** (50) in tree builder to prevent stack overflow with pathological dependency chains
+
+### Changed
+- Extracted `showTemporaryStatus` helper, replacing 9 repeated timer patterns (-40 lines)
+- Replaced magic duration values with named constants (`statusMessageDuration`, `refreshDelay`, `queueUpdateTimeout`, `dbLoadTimeout`, `watcherDebounce`)
+- Tree view collapse indicators changed from `[+]`/`[-]` to ▶/▼
+
+## [0.2.1] - 2026-01-10
+
+### Fixed
+- Fix comment dialog failing to parse bd JSON response when daemon warnings are present. The `bd comment` command writes deprecation and daemon warnings to stderr, which corrupted JSON parsing when using `CombinedOutput()`. Now captures stdout and stderr separately.
+
+## [0.2.0] - 2025-12-12
+
+### Added
+
+#### Tree View Enhancements
+- **Collapsible nodes** (`o`) - Collapse/expand parent nodes in tree view (vim-style fold)
+  - `[+]` indicator for collapsed nodes with child count
+  - `[-]` indicator for expanded nodes
+  - Leaf nodes maintain visual alignment
+- **Expand/collapse all** - Bulk operations for tree nodes
+  - `O` (Shift-O) - Expand all nodes
+  - `Z` (Shift-Z) - Collapse all nodes
+- **Smart collapse defaults** - Nodes auto-collapse/expand based on activity:
+  - Auto-expand nodes with active work (any child is `in_progress`)
+  - Auto-collapse nodes without active work (all children closed or pending)
+  - Manual toggles override smart defaults
+- **Collapse state persistence** - Remember collapse preferences between sessions
+  - Saved to `~/.bd-tui/collapse-<hash>.json` (per-project)
+  - Loads on startup, saves on toggle and exit
+
+#### UI Improvements
+- **View mode hint in panel title** - Shows current view mode (e.g., "Issues [List] (t:Tree)")
+- Cleaner status bar (removed redundant view mode indicator)
+
+## [0.1.0] - 2025-11-25
+
+Initial release of bd-tui, a terminal user interface for the [bd-lite](https://github.com/steveyegge/bd-lite) issue tracker.
+
+### Features
+
+#### Core Functionality
+- Real-time monitoring of bd-lite database with automatic UI refresh
+- Direct SQLite database reading for instant updates
+- Filesystem watching with debounced refresh (200ms)
+- Graceful shutdown with signal handling
+
+#### Views
+- **List View**: Issues grouped by status (ready/blocked/in-progress)
+- **Tree View**: Dependency hierarchy with ASCII tree visualization
+- Toggle between views with `t` key
+- Stats dashboard overlay with `S` key
+
+#### Navigation (Vim-style)
+- `j`/`k` - Move up/down
+- `g` `g` / `G` - Jump to top/bottom
+- `Ctrl-d`/`Ctrl-u` - Half-page scroll in detail panel
+- `Ctrl-b`/`Ctrl-f` - Full-page scroll
+- `/` - Search with `n`/`N` for next/previous match
+- `Tab`/`Enter` - Focus detail panel, `ESC` to return
+
+#### Issue Management
+- **Create issues** (`a`) - Form-based dialog with natural language detection for priority/type
+- **Edit issues** (`e`) - Form-based editing of all fields (description, design, acceptance, notes)
+- **Quick priority** (`0`-`4`) - Instantly set priority P0-P4
+- **Status cycling** (`s`) - Cycle through open → in_progress → blocked → closed
+- **Close/reopen** (`x`/`o`) - Quick issue status changes
+- **Add comments** (`c`) - Comment dialog with keyboard shortcuts
+
+#### Dependency Management
+- **Dependency dialog** (`D`) - Add/remove blocking and parent-child relationships
+- Human-readable dependency phrases ("blocked by", "child of" instead of raw types)
+- Visual dependency indicators in list and tree views
+- Automatic blocked status detection based on open dependencies
+- Blocking propagates through parent-child relationships (matches `bd ready` behavior)
+
+#### Labels
+- **Label management** (`L`) - Add/remove labels from issues
+- Label display with hashtag prefix in issue list
+- Filter by label in quick filter
+
+#### Filtering
+- **Quick filter** (`f`) - Filter by status, priority, type, or label
+- **Show closed** (`C`) - Toggle visibility of closed issues
+- Persistent filter state during session
+
+#### Themes
+- 10+ built-in color themes (Gruvbox Dark default)
+- High-contrast and colorblind accessibility themes
+- TOML-based theme files with embed.FS
+- Theme configuration via `~/.config/bd-tui/config.toml`
+
+#### Clipboard
+- `y` - Yank issue ID to clipboard
+- `Y` - Yank issue ID with title
+- Click issue ID in detail panel to copy
+
+#### Other Features
+- Help screen (`?`) with all keyboard shortcuts
+- Mouse mode toggle (`m`) for terminal text selection
+- Debug logging (`--debug`) for troubleshooting
+- Type emoji icons in issue list
+- Keyboard shortcut hints in dialog titles
+
+### Technical
+
+- Built with [tview](https://github.com/rivo/tview) terminal UI framework
+- Uses [fsnotify](https://github.com/fsnotify/fsnotify) for file watching
+- SQLite database access via [go-sqlite3](https://github.com/ncruces/go-sqlite3)
+- Cross-platform: macOS (Intel/Apple Silicon) and Linux (amd64/arm64)
+
+[0.3.0]: https://github.com/andynu/bd-lite-tui/releases/tag/v0.3.0
+[0.2.1]: https://github.com/andynu/bd-lite-tui/releases/tag/v0.2.1
+[0.2.0]: https://github.com/andynu/bd-lite-tui/releases/tag/v0.2.0
+[0.1.0]: https://github.com/andynu/bd-lite-tui/releases/tag/v0.1.0

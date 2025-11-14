@@ -1,0 +1,45 @@
+# Binaries (root level only, not cmd/bd-tui directory)
+/bd-tui
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binaries
+*.test
+*.out
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Build artifacts
+dist/
+build/
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Beads database (gitignored by beads itself)
+.beads/beads.db
+.beads/bd.sock
+.beads/*.log
+
+# Beads merge conflict artifacts (created during bd merge)
+.beads/beads.left.jsonl
+.beads/beads.left.meta.json
+.beads/beads.base.jsonl
+.beads/beads.base.meta.json
+.beads/beads.right.jsonl
+.beads/beads.right.meta.json
+
+tags
