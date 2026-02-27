@@ -9,12 +9,12 @@ A powerful terminal user interface for the [bd-lite](https://github.com/andynu/b
 ## Features
 
 ### Core Functionality
-- **Live monitoring** of `.beads/beads.db` SQLite database with automatic refresh
+- **Live monitoring** of `.beads/issues.jsonl` with automatic refresh
 - **Dual view modes** - List view (grouped by status) and Tree view (dependency hierarchy)
 - **Issue segregation** - Separate views for ready, blocked, and in-progress issues
 - **Vim-style navigation** - j/k for movement, gg/G for jumps, familiar keybindings
 - **Rich detail panel** - Full issue metadata, dependencies, comments, and acceptance criteria
-- **Real-time updates** - Automatically refreshes when database changes
+- **Real-time updates** - Automatically refreshes when JSONL file changes
 
 ### Editing & Management
 - **Full CRUD operations** - Create, edit, close, and reopen issues without leaving the TUI
@@ -66,7 +66,7 @@ Navigate to a directory containing a `.beads` folder and run:
 ./bd-tui
 ```
 
-The TUI will automatically find the `.beads/beads.db` database in the current or parent directories.
+The TUI will automatically find the `.beads/issues.jsonl` file in the current or parent directories.
 
 ### Debug Mode
 
@@ -193,9 +193,9 @@ bd-lite-tui/
 ├── internal/
 │   ├── app/             # Application context and initialization
 │   ├── formatting/      # Color schemes, status formatting, detail rendering
-│   ├── parser/          # JSONL parser for bd-lite issues (legacy support)
+│   ├── parser/          # JSONL parser for bd-lite issues
 │   ├── state/           # Issue categorization and filtering logic
-│   ├── storage/         # SQLite database reader (primary data source)
+│   ├── storage/         # JSONL file reader (primary data source)
 │   ├── ui/              # UI components and rendering helpers
 │   └── watcher/         # Filesystem monitoring with debouncing
 └── go.mod
@@ -206,18 +206,17 @@ bd-lite-tui/
 - [tview](https://github.com/rivo/tview) - Terminal UI framework
 - [tcell](https://github.com/gdamore/tcell) - Low-level terminal control
 - [fsnotify](https://github.com/fsnotify/fsnotify) - Filesystem monitoring
-- [go-sqlite3](https://github.com/ncruces/go-sqlite3) - SQLite database driver
 - [clipboard](https://github.com/atotto/clipboard) - Cross-platform clipboard access
 
 ## Troubleshooting
 
 ### No issues displayed
 
-The TUI reads directly from the SQLite database (`.beads/beads.db`). If no issues appear:
+The TUI reads directly from `.beads/issues.jsonl`. If no issues appear:
 
-1. **Check database exists:**
+1. **Check JSONL file exists:**
    ```bash
-   ls -la .beads/beads.db
+   ls -la .beads/issues.jsonl
    ```
 
 2. **Verify issues exist:**
@@ -231,7 +230,7 @@ The TUI reads directly from the SQLite database (`.beads/beads.db`). If no issue
 
 ### TUI not updating after bd commands
 
-The TUI watches the SQLite database file for changes. Updates should appear within ~200ms.
+The TUI watches the JSONL file for changes. Updates should appear within ~200ms.
 
 **If updates don't appear:**
 1. Check file watcher is running (no errors on startup)
@@ -299,18 +298,18 @@ bd comment tui-xyz "Your comment text"
 
 **Startup:**
 1. Find `.beads` directory (current dir or walk up parent dirs)
-2. Open SQLite database at `.beads/beads.db`
+2. Parse `.beads/issues.jsonl` via JSONL parser
 3. Load issues and categorize (ready/blocked/in-progress/closed)
 4. Build tview UI with populated lists
-5. Start fsnotify watcher on database file
+5. Start fsnotify watcher on JSONL file
 6. Display TUI
 
 **Live updates:**
 1. User runs `bd` command (e.g., `bd create`, `bd update`)
-2. bd writes to SQLite database
-3. fsnotify detects database write
+2. bd writes to `.beads/issues.jsonl`
+3. fsnotify detects file write
 4. Watcher debounces (200ms) and triggers refresh
-5. Re-query database, update state, redraw UI
+5. Re-parse JSONL, update state, redraw UI
 6. TUI updates automatically
 
 **Issue categorization:**
@@ -333,9 +332,9 @@ bd comment tui-xyz "Your comment text"
 - Detail panel formatting
 - Status icon and emoji rendering
 
-**`internal/parser/`** - JSONL parsing (legacy)
+**`internal/parser/`** - JSONL parsing
 - Domain types matching bd-lite schema
-- Line-by-line JSONL reader (kept for backward compatibility)
+- Line-by-line JSONL reader
 
 **`internal/state/`** - Business logic
 - Issue categorization (ready/blocked/in-progress/closed)
@@ -344,8 +343,8 @@ bd comment tui-xyz "Your comment text"
 - Tree view structure building
 
 **`internal/storage/`** - Data access
-- SQLite database reading (primary data source)
-- Query construction for issues, dependencies, comments
+- JSONL file reading (primary data source)
+- Reads and parses `.beads/issues.jsonl`
 
 **`internal/ui/`** - UI helpers
 - Component builders
@@ -353,7 +352,7 @@ bd comment tui-xyz "Your comment text"
 
 **`internal/watcher/`** - File monitoring
 - fsnotify wrapper with 200ms debouncing
-- Triggers refresh callback on database writes
+- Triggers refresh callback on file writes
 
 ## Integration with bd-lite
 
