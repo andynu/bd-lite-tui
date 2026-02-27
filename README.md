@@ -1,10 +1,10 @@
 # bd-tui
 
-A powerful terminal user interface for the [bd-lite](https://github.com/steveyegge/bd-lite) issue tracker.
+A powerful terminal user interface for the [bd-lite](https://github.com/andynu/bd-lite) issue tracker.
 
 > **Note:** This project showcases two things:
-> 1. **[bd-lite](https://github.com/steveyegge/bd-lite)** - An exceptional local-first issue tracker that uses SQLite + JSONL for storage. If you're tired of heavyweight issue trackers and want something fast, git-friendly, and developer-focused, check out bd-lite!
-> 2. **AI-Assisted Development** - This TUI is developed primarily by guiding [Claude Code](https://code.claude.com), demonstrating how AI pair programming can build complex, maintainable software. The recent refactoring reduced main.go from 2687 to 905 lines (66%) through iterative collaboration.
+> 1. **[bd-lite](https://github.com/andynu/bd-lite)** - A fork and minimization of Steve Yegge's [beads](https://github.com/steveyegge/beads) issue tracker. Beads is an ambitious distributed issue tracking system with SQLite, Dolt, a daemon, RPC, compaction, and multi-repo sync. bd-lite strips it down to basics: same data format, no database, no daemon, no sync — just issues in a JSONL file. If you want the full power, use [beads](https://github.com/steveyegge/beads); if you want something minimal and file-based, use [bd-lite](https://github.com/andynu/bd-lite).
+> 2. **AI-Assisted Development** - This TUI is developed primarily by guiding [Claude Code](https://code.claude.com), demonstrating how AI pair programming can build complex, maintainable software.
 
 ## Features
 
@@ -254,7 +254,7 @@ The TUI uses built-in text areas for editing. Press `e` to open the edit dialog 
 
 ## Development
 
-This project uses [bd-lite](https://github.com/steveyegge/bd-lite) for its own issue tracking (dogfooding). View current work:
+This project uses [bd-lite](https://github.com/andynu/bd-lite) for its own issue tracking (dogfooding). View current work:
 
 ```bash
 bd ready        # Show ready issues
