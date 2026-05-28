@@ -7,15 +7,19 @@ func ContainsCaseInsensitive(s, substr string) bool {
 	return len(s) >= len(substr) && IndexCaseInsensitive(s, substr) >= 0
 }
 
-// ToLower converts string to lowercase without using strings package
+// ToLower converts ASCII A-Z to lowercase, leaving all other runes (including
+// multi-byte UTF-8 such as emoji) untouched.
+//
+// Note: `for i, r := range s` yields byte offsets for i, so indexing a []rune by
+// i corrupts any string containing multi-byte runes. Append in iteration order
+// instead.
 func ToLower(s string) string {
-	result := make([]rune, len(s))
-	for i, r := range s {
+	result := make([]rune, 0, len(s))
+	for _, r := range s {
 		if r >= 'A' && r <= 'Z' {
-			result[i] = r + 32
-		} else {
-			result[i] = r
+			r += 32
 		}
+		result = append(result, r)
 	}
 	return string(result)
 }

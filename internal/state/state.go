@@ -269,6 +269,81 @@ func (s *State) GetIssueByID(id string) *parser.Issue {
 	return s.issuesByID[id]
 }
 
+// FindIssueByQuery searches all issues (including closed and filtered-out ones)
+// for a match against the query, preferring ID matches over title matches.
+//
+// Match precedence:
+//  1. exact ID match (e.g. "wiser-15q")
+//  2. ID contains the query (covers bare suffixes like "15q")
+//  3. title contains the query
+//
+// Returns nil if nothing matches. Used by search to locate issues that are not
+// currently rendered so the caller can reveal and select them.
+func (s *State) FindIssueByQuery(query string) *parser.Issue {
+	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "" {
+		return nil
+	}
+
+	// Pass 1: exact ID match
+	for _, issue := range s.issues {
+		if strings.ToLower(issue.ID) == q {
+			return issue
+		}
+	}
+	// Pass 2: ID substring match (e.g. suffix "15q" within "wiser-15q")
+	for _, issue := range s.issues {
+		if strings.Contains(strings.ToLower(issue.ID), q) {
+			return issue
+		}
+	}
+	// Pass 3: title substring match
+	for _, issue := range s.issues {
+		if strings.Contains(strings.ToLower(issue.Title), q) {
+			return issue
+		}
+	}
+	return nil
+}
+
+// IssuePassesFilters reports whether the given issue would survive the currently
+// active filters (i.e. whether it can appear in the filtered lists).
+func (s *State) IssuePassesFilters(issue *parser.Issue) bool {
+	return len(s.applyFilters([]*parser.Issue{issue})) > 0
+}
+
+// ExpandAncestors expands every ancestor of the given issue in the tree so the
+// issue's row becomes visible. Returns true if any collapsed ancestor was
+// expanded (false if the issue is not in the tree or was already visible).
+func (s *State) ExpandAncestors(issueID string) bool {
+	changed := false
+
+	var walk func(node *TreeNode) bool // returns true if issueID is in this subtree
+	walk = func(node *TreeNode) bool {
+		if node.Issue.ID == issueID {
+			return true
+		}
+		for _, child := range node.Children {
+			if walk(child) {
+				// node is an ancestor of the target - ensure it is expanded
+				if s.IsCollapsed(node.Issue.ID) {
+					changed = true
+				}
+				s.collapsedNodes[node.Issue.ID] = false
+				return true
+			}
+		}
+		return false
+	}
+
+	for _, root := range s.treeNodes {
+		if walk(root) {
+			break
+		}
+	}
+	return changed
+}
+
 // SetSelectedIssue sets the currently selected issue
 func (s *State) SetSelectedIssue(issue *parser.Issue) {
 	s.selectedIssue = issue

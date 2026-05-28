@@ -654,7 +654,11 @@ func main() {
 			return
 		}
 
-		// Search through all items in the list
+		emphasisColor := formatting.GetEmphasisColor()
+		errorColor := formatting.GetErrorColor()
+
+		// Search through all currently-rendered rows (matches ID, title, labels -
+		// everything shown in the row text).
 		for i := 0; i < issueList.GetItemCount(); i++ {
 			mainText, _ := issueList.GetItemText(i)
 			// Simple case-insensitive substring search
@@ -664,15 +668,73 @@ func main() {
 		}
 
 		// Jump to first match if any
-		emphasisColor := formatting.GetEmphasisColor()
-		errorColor := formatting.GetErrorColor()
 		if len(searchMatches) > 0 {
 			currentSearchIndex = 0
 			issueList.SetCurrentItem(searchMatches[0])
 			statusBar.SetText(fmt.Sprintf("[%s]Search:[-] %s [%d/%d matches] [Press n/N for next/prev, ESC to exit search]",
 				emphasisColor, query, 1, len(searchMatches)))
-		} else {
+			return
+		}
+
+		// No visible match. The target may exist but be hidden - collapsed under a
+		// parent in tree view, filtered out, or closed. Find it in the full issue
+		// set (ID-first), then reveal and select it.
+		target := appState.FindIssueByQuery(query)
+		if target == nil {
 			statusBar.SetText(fmt.Sprintf("[%s]Search:[-] %s [No matches]", errorColor, query))
+			return
+		}
+
+		revealed := false
+
+		// Closed issues only render in list view with "show closed" enabled.
+		if target.Status == parser.StatusClosed {
+			if appState.GetViewMode() == state.ViewTree {
+				appState.SetViewMode(state.ViewList)
+				issueList.SetTitle(getIssueListTitle())
+				revealed = true
+			}
+			if !showClosedIssues {
+				showClosedIssues = true
+				revealed = true
+			}
+		}
+
+		// Clear filters if they would hide the target.
+		if appState.HasActiveFilters() && !appState.IssuePassesFilters(target) {
+			appState.ClearAllFilters()
+			revealed = true
+		}
+
+		// Expand collapsed ancestors in tree view.
+		if appState.GetViewMode() == state.ViewTree && appState.ExpandAncestors(target.ID) {
+			revealed = true
+		}
+
+		populateIssueList()
+
+		// Locate the (now visible) row for the target and select it.
+		matchIndex := -1
+		for idx, iss := range indexToIssue {
+			if iss.ID == target.ID {
+				matchIndex = idx
+				break
+			}
+		}
+
+		if matchIndex >= 0 {
+			searchMatches = []int{matchIndex}
+			currentSearchIndex = 0
+			issueList.SetCurrentItem(matchIndex)
+			revealNote := ""
+			if revealed {
+				revealNote = " [revealed]"
+			}
+			statusBar.SetText(fmt.Sprintf("[%s]Search:[-] %s [matched %s]%s [ESC to exit search]",
+				emphasisColor, query, target.ID, revealNote))
+		} else {
+			statusBar.SetText(fmt.Sprintf("[%s]Search:[-] %s [matched %s but it could not be displayed]",
+				errorColor, query, target.ID))
 		}
 	}
 

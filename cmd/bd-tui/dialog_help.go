@@ -29,10 +29,14 @@ func (h *DialogHelpers) ShowHelpScreen() {
   ESC         Return focus to issue list
 
 [cyan::b]Search[-::-]
-  /           Start search mode
+  /           Start search mode (matches issue ID, title, labels)
   n           Next search result
   N           Previous search result
   ESC         Exit search mode
+
+  Searching an ID/number jumps to that issue even when it is
+  hidden (collapsed in tree view, filtered out, or closed),
+  revealing it as needed.
 
 [cyan::b]Quick Actions[-::-]
   0-4         Set priority (P0=critical, P1=high, P2=normal, P3=low, P4=lowest)
