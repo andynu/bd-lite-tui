@@ -391,6 +391,20 @@ func main() {
 		}
 		log.Printf("REFRESH: Loaded %d issues from JSONL", len(issues))
 
+		// Honor the --issue single-issue filter across refreshes. Without this,
+		// any watcher event or manual refresh would reload the full issue set and
+		// silently discard the filter the user launched with.
+		if *issueID != "" {
+			filtered := make([]*parser.Issue, 0, 1)
+			for _, issue := range issues {
+				if issue.ID == *issueID {
+					filtered = append(filtered, issue)
+					break
+				}
+			}
+			issues = filtered
+		}
+
 		// Update state
 		appState.LoadIssues(issues)
 		log.Printf("REFRESH: Updated app state")
@@ -524,15 +538,26 @@ func main() {
 		if action == tview.MouseLeftClick && currentDetailIssue != nil {
 			// Get click position
 			_, y := event.Position()
-			// Get the detail panel's position
-			_, panelY, _, _ := detailPanel.GetInnerRect()
+			// Get the detail panel's position and width
+			_, panelY, innerWidth, _ := detailPanel.GetInnerRect()
 
-			// Calculate relative position within the text view
-			relativeY := y - panelY
+			// Translate the click to a content line, accounting for scroll.
+			rowOffset, _ := detailPanel.GetScrollOffset()
+			clickedLine := (y - panelY) + rowOffset
 
-			// The issue ID is on line 2 (0-indexed line 1) of the detail text
-			// Format: "ID: <issue-id>  P<priority>  <status>"
-			if relativeY == 1 && currentDetailIssue != nil {
+			// The ID lives on the line after the (possibly wrapped) title. Use
+			// tview's own word-wrap to find where the title ends rather than
+			// assuming the title fits on a single line.
+			idLine := 1
+			if innerWidth > 0 {
+				typeIcon := formatting.GetTypeIcon(currentDetailIssue.IssueType)
+				titleText := fmt.Sprintf("%s %s", typeIcon, currentDetailIssue.Title)
+				if n := len(tview.WordWrap(titleText, innerWidth)); n > 0 {
+					idLine = n
+				}
+			}
+
+			if clickedLine == idLine && currentDetailIssue != nil {
 				// Copy issue ID to clipboard
 				err := clipboard.WriteAll(currentDetailIssue.ID)
 				if err != nil {
@@ -859,7 +884,10 @@ func main() {
 				return nil
 			case tcell.KeyBackspace, tcell.KeyBackspace2:
 				if len(searchQuery) > 0 {
-					searchQuery = searchQuery[:len(searchQuery)-1]
+					// Trim a full rune, not a single byte, so multi-byte UTF-8
+					// input isn't corrupted into invalid sequences.
+					runes := []rune(searchQuery)
+					searchQuery = string(runes[:len(runes)-1])
 					statusBar.SetText(fmt.Sprintf("[%s]Search:[-] %s_", formatting.GetEmphasisColor(), searchQuery))
 				}
 				return nil
@@ -958,16 +986,18 @@ func main() {
 			lastEscapeTime = now
 			statusBar.SetText(fmt.Sprintf("[%s]Press ESC again to quit (or 'q')[-]", formatting.GetEmphasisColor()))
 
-			// Clear the hint after 1 second
+			// Clear the hint after 1 second. Both the read and the write of
+			// lastEscapeTime happen inside QueueUpdateDraw so all access to this
+			// (and the other input-state vars) stays on the tview event loop
+			// goroutine — avoiding a data race with the input handler.
 			go func() {
 				time.Sleep(time.Second)
-				// Reset ESC state after timeout
-				if time.Since(lastEscapeTime) >= time.Second {
-					lastEscapeTime = time.Time{}
-					app.QueueUpdateDraw(func() {
+				app.QueueUpdateDraw(func() {
+					if time.Since(lastEscapeTime) >= time.Second {
+						lastEscapeTime = time.Time{}
 						statusBar.SetText(getStatusBarText())
-					})
-				}
+					}
+				})
 			}()
 			return nil
 		case tcell.KeyTab:
@@ -1062,6 +1092,14 @@ func main() {
 				}
 				lastKeyWasS = false
 				return nil
+			}
+
+			// Reset the pending 'g' (gg) prefix on any rune other than 'g'.
+			// Many rune handlers below return early, so relying on the outer
+			// default case to clear it left the flag sticky after j/k/0-4/etc.,
+			// causing a later single 'g' to be misread as 'gg'.
+			if event.Rune() != 'g' {
+				lastKeyWasG = false
 			}
 
 			// Normal single-key handling

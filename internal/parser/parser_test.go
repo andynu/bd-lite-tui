@@ -62,6 +62,44 @@ func TestParseFile(t *testing.T) {
 	}
 }
 
+func TestParseDeduplicatesByIDLastWriteWins(t *testing.T) {
+	tmpDir := t.TempDir()
+	jsonlPath := filepath.Join(tmpDir, "dupes.jsonl")
+
+	// test-1 appears twice; the later line is the current state.
+	content := `{"id":"test-1","title":"Old Title","status":"open","priority":2,"issue_type":"task","created_at":"2025-01-01T00:00:00Z","updated_at":"2025-01-01T00:00:00Z"}
+{"id":"test-2","title":"Second","status":"open","priority":1,"issue_type":"bug","created_at":"2025-01-01T00:00:00Z","updated_at":"2025-01-01T00:00:00Z"}
+{"id":"test-1","title":"New Title","status":"closed","priority":0,"issue_type":"task","created_at":"2025-01-01T00:00:00Z","updated_at":"2025-01-03T00:00:00Z"}
+`
+	if err := os.WriteFile(jsonlPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	issues, err := ParseFile(jsonlPath)
+	if err != nil {
+		t.Fatalf("ParseFile failed: %v", err)
+	}
+
+	if len(issues) != 2 {
+		t.Fatalf("Expected 2 deduped issues, got %d", len(issues))
+	}
+
+	// First-seen order is preserved: test-1 stays at index 0.
+	if issues[0].ID != "test-1" {
+		t.Errorf("Expected first issue 'test-1', got '%s'", issues[0].ID)
+	}
+	// Last write wins: the latest record's data is used.
+	if issues[0].Title != "New Title" {
+		t.Errorf("Expected last-write-wins title 'New Title', got '%s'", issues[0].Title)
+	}
+	if issues[0].Status != StatusClosed {
+		t.Errorf("Expected last-write-wins status 'closed', got '%s'", issues[0].Status)
+	}
+	if issues[1].ID != "test-2" {
+		t.Errorf("Expected second issue 'test-2', got '%s'", issues[1].ID)
+	}
+}
+
 func TestParseEmptyFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	jsonlPath := filepath.Join(tmpDir, "empty.jsonl")

@@ -3,9 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
-	"os/exec"
-	"path/filepath"
 
 	"github.com/andynu/bd-lite-tui/internal/formatting"
 	"github.com/gdamore/tcell/v2"
@@ -61,46 +58,26 @@ func (h *DialogHelpers) ShowEditForm() {
 	saveChanges := func() {
 		issueID := issue.ID // Capture before potential refresh
 
-		// Build update command with all fields
-		// Use temp files to avoid shell escaping issues
-		titleFile := filepath.Join(os.TempDir(), fmt.Sprintf("bd-tui-title-%s.txt", issueID))
-		descFile := filepath.Join(os.TempDir(), fmt.Sprintf("bd-tui-desc-%s.txt", issueID))
-
-		defer os.Remove(titleFile)
-		defer os.Remove(descFile)
-
-		if err := os.WriteFile(titleFile, []byte(title), 0600); err != nil {
-			h.StatusBar.SetText(fmt.Sprintf("[%s]Error: %v[-]", formatting.GetErrorColor(), err))
-			return
-		}
-		if err := os.WriteFile(descFile, []byte(description), 0600); err != nil {
-			h.StatusBar.SetText(fmt.Sprintf("[%s]Error: %v[-]", formatting.GetErrorColor(), err))
-			return
-		}
-
-		cmd := fmt.Sprintf("bd update %s --title \"$(cat %s)\" --description \"$(cat %s)\" --priority %d --type %s --json",
-			issueID, titleFile, descFile, priority, issueType)
-
+		// Use execBdJSON (exec without a shell) so title/description content is
+		// passed as discrete argv entries — no shell quoting/injection concerns —
+		// and stderr warnings are kept out of the JSON parsed from stdout.
 		log.Printf("BD COMMAND: Updating issue: bd update %s ...", issueID)
-		output, err := exec.Command("sh", "-c", cmd).CombinedOutput()
+		updatedIssue, err := execBdJSONIssue("update", issueID,
+			"--title", title,
+			"--description", description,
+			"--priority", fmt.Sprintf("%d", priority),
+			"--type", issueType)
 		if err != nil {
-			log.Printf("BD COMMAND ERROR: Update failed: %v, output: %s", err, string(output))
+			log.Printf("BD COMMAND ERROR: Update failed: %v", err)
 			h.StatusBar.SetText(fmt.Sprintf("[%s]Error updating issue: %v[-]", formatting.GetErrorColor(), err))
-		} else {
-			// Parse JSON response to verify success
-			result, parseErr := parseBdJSON(output)
-			if parseErr != nil {
-				log.Printf("BD COMMAND ERROR: Failed to parse response: %v", parseErr)
-				h.StatusBar.SetText(fmt.Sprintf("[%s]Error parsing response: %v[-]", formatting.GetErrorColor(), parseErr))
-			} else if len(result.Issues) > 0 {
-				updatedIssue := result.Issues[0]
-				log.Printf("BD COMMAND: Issue updated successfully: %s", updatedIssue.Title)
-				h.StatusBar.SetText(fmt.Sprintf("[%s]✓ Updated [%s]%s[-][-]", formatting.GetSuccessColor(), formatting.GetAccentColor(), updatedIssue.ID))
-				h.Pages.RemovePage("edit_form")
-				h.App.SetFocus(h.IssueList)
-				h.ScheduleRefresh(issueID)
-			}
+			return
 		}
+
+		log.Printf("BD COMMAND: Issue updated successfully: %s", updatedIssue.Title)
+		h.StatusBar.SetText(fmt.Sprintf("[%s]✓ Updated [%s]%s[-][-]", formatting.GetSuccessColor(), formatting.GetAccentColor(), updatedIssue.ID))
+		h.Pages.RemovePage("edit_form")
+		h.App.SetFocus(h.IssueList)
+		h.ScheduleRefresh(issueID)
 	}
 
 	form.AddButton("Save (Ctrl-S)", saveChanges)

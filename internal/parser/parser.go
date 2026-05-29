@@ -25,8 +25,17 @@ func (p *Parser) ParseAll() ([]*Issue, error) {
 	}
 	defer file.Close()
 
+	// The JSONL store is append-only with last-write-wins semantics: an issue ID
+	// may appear on multiple lines, and the latest line is the current state.
+	// Dedupe by ID, keeping each issue at its first-seen position but replacing
+	// its data with the most recent record. Without this, re-written issues would
+	// appear as duplicate rows (and be double-counted in the categorized lists).
 	var issues []*Issue
+	indexByID := make(map[string]int)
 	scanner := bufio.NewScanner(file)
+	// Allow long lines (issues with large descriptions/many comments) beyond the
+	// default 64KiB token limit.
+	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	lineNum := 0
 
 	for scanner.Scan() {
@@ -43,7 +52,15 @@ func (p *Parser) ParseAll() ([]*Issue, error) {
 			return nil, fmt.Errorf("invalid JSON at line %d: %w", lineNum, err)
 		}
 
-		issues = append(issues, &issue)
+		issueCopy := issue
+		if issue.ID != "" {
+			if idx, seen := indexByID[issue.ID]; seen {
+				issues[idx] = &issueCopy
+				continue
+			}
+			indexByID[issue.ID] = len(issues)
+		}
+		issues = append(issues, &issueCopy)
 	}
 
 	if err := scanner.Err(); err != nil {

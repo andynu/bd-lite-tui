@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/andynu/bd-lite-tui/internal/parser"
+	"github.com/rivo/tview"
 )
 
 // formatDependencyPhrase converts a dependency type to a human-readable phrase
@@ -39,15 +40,17 @@ func FormatIssueDetails(issue *parser.Issue) string {
 	accentColor := GetAccentColor()
 	emphasisColor := GetEmphasisColor()
 
-	result += fmt.Sprintf("[::b]%s %s[-::-]\n", typeIcon, issue.Title)
-	result += fmt.Sprintf("[%s]ID:[-] %s [%s](click to copy)[-]  ", mutedColor, issue.ID, accentColor)
+	// User-controlled fields are escaped so brackets are rendered literally
+	// rather than being parsed as tview color/region tags.
+	result += fmt.Sprintf("[::b]%s %s[-::-]\n", typeIcon, tview.Escape(issue.Title))
+	result += fmt.Sprintf("[%s]ID:[-] %s [%s](click to copy)[-]  ", mutedColor, tview.Escape(issue.ID), accentColor)
 	result += fmt.Sprintf("[%s]P%d[-]  ", priorityColor, issue.Priority)
 	result += fmt.Sprintf("[%s]%s[-]\n\n", statusColor, issue.Status)
 
 	// Description
 	if issue.Description != "" {
 		result += fmt.Sprintf("[%s::b]Description:[-::-]\n", emphasisColor)
-		result += issue.Description + "\n\n"
+		result += tview.Escape(issue.Description) + "\n\n"
 	}
 
 	// Dependencies
@@ -72,7 +75,7 @@ func FormatIssueDetails(issue *parser.Issue) string {
 			if i > 0 {
 				result += ", "
 			}
-			result += fmt.Sprintf("[%s]%s[-]", accentColor, label)
+			result += fmt.Sprintf("[%s]%s[-]", accentColor, tview.Escape(label))
 		}
 		result += "\n\n"
 	}
@@ -87,19 +90,19 @@ func FormatIssueDetails(issue *parser.Issue) string {
 	}
 
 	if issue.CloseReason != "" {
-		result += fmt.Sprintf("  Close Reason: %s\n", issue.CloseReason)
+		result += fmt.Sprintf("  Close Reason: %s\n", tview.Escape(issue.CloseReason))
 	}
 
 	if issue.Assignee != "" {
-		result += fmt.Sprintf("  Assignee: %s\n", issue.Assignee)
+		result += fmt.Sprintf("  Assignee: %s\n", tview.Escape(issue.Assignee))
 	}
 
 	// Comments
 	if len(issue.Comments) > 0 {
 		result += fmt.Sprintf("\n[%s::b]Comments:[-::-]\n", emphasisColor)
 		for _, comment := range issue.Comments {
-			result += fmt.Sprintf("  [%s]%s[-] (%s):\n", accentColor, comment.Author, comment.CreatedAt.Format("2006-01-02 15:04"))
-			result += fmt.Sprintf("    %s\n", comment.Text)
+			result += fmt.Sprintf("  [%s]%s[-] (%s):\n", accentColor, tview.Escape(comment.Author), comment.CreatedAt.Format("2006-01-02 15:04"))
+			result += fmt.Sprintf("    %s\n", tview.Escape(comment.Text))
 		}
 	}
 

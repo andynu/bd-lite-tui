@@ -3,6 +3,7 @@ package watcher
 import (
 	"fmt"
 	"log"
+	"path/filepath"
 	"sync/atomic"
 	"time"
 
@@ -12,7 +13,8 @@ import (
 // Watcher monitors a file for changes and triggers a callback
 type Watcher struct {
 	watcher       *fsnotify.Watcher
-	path          string
+	path          string // cleaned absolute/relative path of the watched file
+	dir           string // parent directory actually registered with fsnotify
 	debounceDelay time.Duration
 	onChange      func()
 	stopCh        chan struct{}
@@ -28,7 +30,8 @@ func New(path string, debounceDelay time.Duration, onChange func()) (*Watcher, e
 
 	w := &Watcher{
 		watcher:       fsWatcher,
-		path:          path,
+		path:          filepath.Clean(path),
+		dir:           filepath.Dir(path),
 		debounceDelay: debounceDelay,
 		onChange:      onChange,
 		stopCh:        make(chan struct{}),
@@ -37,10 +40,16 @@ func New(path string, debounceDelay time.Duration, onChange func()) (*Watcher, e
 	return w, nil
 }
 
-// Start begins watching the file for changes
+// Start begins watching the file for changes.
+//
+// We register the parent directory rather than the file itself. Many writers
+// (including bd-lite and editors) save atomically by writing a temp file and
+// renaming it over the target; an inode-level watch on the file path goes
+// silent after such a replace. Watching the directory and filtering events by
+// filename survives renames and recreations.
 func (w *Watcher) Start() error {
-	if err := w.watcher.Add(w.path); err != nil {
-		return fmt.Errorf("failed to watch file: %w", err)
+	if err := w.watcher.Add(w.dir); err != nil {
+		return fmt.Errorf("failed to watch directory: %w", err)
 	}
 
 	go w.watchLoop()
@@ -67,6 +76,12 @@ func (w *Watcher) watchLoop() {
 		case event, ok := <-w.watcher.Events:
 			if !ok {
 				return
+			}
+
+			// The directory watch reports events for every file in the dir;
+			// ignore anything that is not our target file.
+			if filepath.Clean(event.Name) != w.path {
+				continue
 			}
 
 			// Only respond to write and create events

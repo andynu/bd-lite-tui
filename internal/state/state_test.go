@@ -130,6 +130,60 @@ func TestStateBlockedIssues(t *testing.T) {
 	}
 }
 
+func TestBlockingPropagatesThroughDottedIDParent(t *testing.T) {
+	state := New()
+
+	now := time.Now()
+	issues := []*parser.Issue{
+		{
+			ID:        "blocker",
+			Title:     "Open blocker",
+			Status:    parser.StatusOpen,
+			Priority:  1,
+			IssueType: parser.TypeTask,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+		{
+			// Parent is blocked by an open dependency.
+			ID:        "epic-1",
+			Title:     "Blocked parent",
+			Status:    parser.StatusOpen,
+			Priority:  1,
+			IssueType: parser.TypeFeature,
+			CreatedAt: now,
+			UpdatedAt: now,
+			Dependencies: []*parser.Dependency{
+				{IssueID: "epic-1", DependsOnID: "blocker", Type: parser.DepBlocks, CreatedAt: now, CreatedBy: "test"},
+			},
+		},
+		{
+			// Child by dotted ID only (no explicit parent-child dependency).
+			ID:        "epic-1.1",
+			Title:     "Dotted child",
+			Status:    parser.StatusOpen,
+			Priority:  2,
+			IssueType: parser.TypeTask,
+			CreatedAt: now,
+			UpdatedAt: now,
+		},
+	}
+
+	state.LoadIssues(issues)
+
+	// The dotted child should inherit its parent's blocked state so list view
+	// and tree view agree.
+	if !state.IsEffectivelyBlocked("epic-1.1") {
+		t.Error("Expected dotted child epic-1.1 to be blocked via its blocked parent epic-1")
+	}
+
+	for _, ready := range state.GetReadyIssues() {
+		if ready.ID == "epic-1.1" {
+			t.Error("epic-1.1 should not appear in ready issues; its parent is blocked")
+		}
+	}
+}
+
 func TestStateBlockedByClosedIssue(t *testing.T) {
 	state := New()
 

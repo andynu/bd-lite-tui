@@ -132,8 +132,10 @@ func formatIssueListItem(issue *parser.Issue, statusIcon string, showPrefix bool
 	priorityColor := formatting.GetPriorityColor(issue.Priority)
 	typeIcon := formatting.GetTypeIcon(issue.IssueType)
 	displayID := formatting.FormatIssueID(issue.ID, showPrefix)
+	// Escape user-controlled fields so brackets in titles/labels are not parsed
+	// as tview color/region tags (which would corrupt display and search).
 	text := fmt.Sprintf("  [%s]%s[-] %s %s [P%d] %s",
-		priorityColor, statusIcon, typeIcon, displayID, issue.Priority, issue.Title)
+		priorityColor, statusIcon, typeIcon, tview.Escape(displayID), issue.Priority, tview.Escape(issue.Title))
 
 	// Add labels if present
 	if len(issue.Labels) > 0 {
@@ -143,7 +145,7 @@ func formatIssueListItem(issue *parser.Issue, statusIcon string, showPrefix bool
 			if i > 0 {
 				text += " "
 			}
-			text += "#" + label
+			text += "#" + tview.Escape(label)
 		}
 		text += "[-]"
 	}
@@ -220,7 +222,7 @@ func renderTreeNode(
 	typeIcon := formatting.GetTypeIcon(issue.IssueType)
 	displayID := formatting.FormatIssueID(issue.ID, showPrefix)
 	text := fmt.Sprintf("%s%s%s[%s]%s[-] %s [%s]%s[-] [P%d] %s",
-		prefix, branch, collapseIndicator, statusColor, statusIcon, typeIcon, priorityColor, displayID, issue.Priority, issue.Title)
+		prefix, branch, collapseIndicator, statusColor, statusIcon, typeIcon, priorityColor, tview.Escape(displayID), issue.Priority, tview.Escape(issue.Title))
 
 	// Add child count for collapsed nodes
 	if hasChildren && isCollapsed {
@@ -236,7 +238,7 @@ func renderTreeNode(
 			if i > 0 {
 				text += " "
 			}
-			text += "#" + label
+			text += "#" + tview.Escape(label)
 		}
 		text += "[-]"
 	}

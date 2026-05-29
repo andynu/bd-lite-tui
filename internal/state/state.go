@@ -121,6 +121,27 @@ func (s *State) categorizeIssues() {
 		}
 	}
 
+	// Also infer parentage from dotted IDs (e.g. "tui-y4h.1" is a child of
+	// "tui-y4h"), matching the tree view's logic in buildDependencyTree. Without
+	// this, list view and tree view disagree: a dotted child of a blocked parent
+	// would show as ready in the list but nested under a blocked parent in the
+	// tree. Explicit parent-child deps take precedence over inferred ones.
+	for _, issue := range s.issues {
+		if _, alreadySet := parentMap[issue.ID]; alreadySet {
+			continue
+		}
+		// Find the longest existing prefix before a dot.
+		for i := len(issue.ID) - 1; i >= 0; i-- {
+			if issue.ID[i] == '.' {
+				candidateParentID := issue.ID[:i]
+				if _, ok := s.issuesByID[candidateParentID]; ok {
+					parentMap[issue.ID] = candidateParentID
+					break
+				}
+			}
+		}
+	}
+
 	// First pass: Mark issues with direct "blocks" dependencies on open issues
 	for _, issue := range s.issues {
 		for _, dep := range issue.Dependencies {
