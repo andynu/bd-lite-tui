@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -319,8 +320,13 @@ func main() {
 		})
 	}
 
-	// Mutex to serialize refresh operations
-	var refreshMutex sync.Mutex
+	// Single-flight guards for refreshes. Rather than serialize refreshes behind
+	// a mutex held across UI queueing (which could stall every refresh for up to
+	// queueUpdateTimeout and leak goroutines), overlapping requests coalesce:
+	// refreshRunning marks an in-flight refresh and refreshAgain records that
+	// another was requested while one was running.
+	var refreshRunning atomic.Bool
+	var refreshAgain atomic.Bool
 
 	// Refresh timer for single-flight pattern (prevent timer pile-up)
 	var refreshTimer *time.Timer
@@ -348,43 +354,23 @@ func main() {
 		log.Printf("SCHEDULE: Refresh scheduled in 500ms for issue: %s", issueID)
 	}
 
-	// Function to load and display issues (for async updates after app starts)
-	// preserveIssueID: if provided, attempt to restore selection to this issue after refresh
-	refreshIssues = func(preserveIssueID ...string) {
-		// Serialize refreshes to prevent concurrent access
-		refreshMutex.Lock()
-		defer refreshMutex.Unlock()
+	// doRefresh performs one load+apply cycle. The JSONL load runs on the calling
+	// (background) goroutine; state mutation and the UI rebuild happen together
+	// inside a single QueueUpdateDraw on the main thread. Doing both on the main
+	// thread means background loads never race with main-thread reads, and no
+	// lock is held across UI queueing. targetIssueID selects which issue to keep
+	// selected; empty means auto-preserve the current selection.
+	doRefresh := func(targetIssueID string) {
+		log.Printf("REFRESH: Starting issue load")
 
-		log.Printf("REFRESH: Starting issue refresh (mutex acquired)")
-
-		// Show "Refreshing..." in status bar
-		safeQueueUpdateDraw(func() {
-			statusBar.SetText("[yellow]⟳ Refreshing...[-]")
-		})
-
-		var targetIssueID string
-		if len(preserveIssueID) > 0 {
-			targetIssueID = preserveIssueID[0]
-			log.Printf("REFRESH: Will attempt to preserve selection on issue: %s", targetIssueID)
-		} else {
-			// No explicit issue ID provided, try to preserve current selection
-			currentIndex := issueList.GetCurrentItem()
-			if currentIssue, ok := indexToIssue[currentIndex]; ok {
-				targetIssueID = currentIssue.ID
-				log.Printf("REFRESH: Auto-preserving current selection: %s", targetIssueID)
-			}
-		}
-
-		// Load issues from JSONL with timeout
+		// Load issues from JSONL with timeout (off the main thread).
 		ctx, cancel := context.WithTimeout(context.Background(), loadTimeout)
-		defer cancel()
-
-		log.Printf("REFRESH: Loading issues from JSONL (timeout=5s)")
 		issues, err := jsonlReader.LoadIssues(ctx)
+		cancel()
 		if err != nil {
 			log.Printf("REFRESH ERROR: Failed to load issues: %v", err)
 			errText := fmt.Sprintf("Error loading issues: %v", err)
-			safeQueueUpdateDraw(func() {
+			app.QueueUpdateDraw(func() {
 				statusBar.SetText(errorMsg(errText))
 			})
 			return
@@ -405,43 +391,41 @@ func main() {
 			issues = filtered
 		}
 
-		// Update state
-		appState.LoadIssues(issues)
-		log.Printf("REFRESH: Updated app state")
-
-		// Update UI on main thread
-		log.Printf("REFRESH: Queueing UI update")
-		safeQueueUpdateDraw(func() {
+		// Apply state + UI together on the main thread.
+		app.QueueUpdateDraw(func() {
 			log.Printf("REFRESH: UI update executing")
-			// Update status bar
-			statusBar.SetText(getStatusBarText())
 
-			// Remember current position before rebuilding the list
+			// Resolve the selection to preserve, reading UI state on the main
+			// thread (before the list is rebuilt).
 			previousIndex := issueList.GetCurrentItem()
+			target := targetIssueID
+			if target == "" {
+				if currentIssue, ok := indexToIssue[previousIndex]; ok {
+					target = currentIssue.ID
+				}
+			}
 
+			appState.LoadIssues(issues)
+			statusBar.SetText(getStatusBarText())
 			populateIssueList()
 
-			// Restore selection if requested
-			if targetIssueID != "" {
-				log.Printf("REFRESH: Searching for issue %s to restore selection", targetIssueID)
+			// Restore selection.
+			if target != "" {
 				found := false
 				for idx, issue := range indexToIssue {
-					if issue.ID == targetIssueID {
-						log.Printf("REFRESH: Found issue %s at index %d, restoring selection", targetIssueID, idx)
+					if issue.ID == target {
 						issueList.SetCurrentItem(idx)
 						found = true
 						break
 					}
 				}
 				// If the issue is no longer in the list (e.g., it was closed),
-				// keep the cursor at the same position or the last item
+				// keep the cursor at the same position or the last item.
 				if !found {
-					itemCount := issueList.GetItemCount()
-					if itemCount > 0 {
+					if itemCount := issueList.GetItemCount(); itemCount > 0 {
 						if previousIndex >= itemCount {
 							previousIndex = itemCount - 1
 						}
-						log.Printf("REFRESH: Issue %s not found in list, keeping position at index %d", targetIssueID, previousIndex)
 						issueList.SetCurrentItem(previousIndex)
 					}
 				}
@@ -450,6 +434,42 @@ func main() {
 			log.Printf("REFRESH: UI update complete")
 		})
 		log.Printf("REFRESH: Issue refresh complete")
+	}
+
+	// refreshIssues triggers a refresh. It is non-blocking and single-flight:
+	// concurrent callers (file watcher, manual 'r', post-update scheduleRefresh)
+	// coalesce into at most one in-flight refresh plus one queued re-run, so
+	// bursts of changes collapse instead of piling up goroutines.
+	//
+	// preserveIssueID: if provided, the next refresh restores selection to it;
+	// coalesced re-runs fall back to auto-preserving the current selection
+	// (which, after an in-place update, is the same issue).
+	refreshIssues = func(preserveIssueID ...string) {
+		targetID := ""
+		if len(preserveIssueID) > 0 {
+			targetID = preserveIssueID[0]
+		}
+
+		refreshAgain.Store(true)
+		if !refreshRunning.CompareAndSwap(false, true) {
+			// A refresh is already running; it will pick up the request above.
+			return
+		}
+
+		go func(firstTarget string) {
+			for {
+				for refreshAgain.CompareAndSwap(true, false) {
+					doRefresh(firstTarget)
+					firstTarget = "" // coalesced re-runs auto-preserve selection
+				}
+				refreshRunning.Store(false)
+				// A request may have arrived between the failed CAS above and the
+				// Store; re-acquire the slot if so, otherwise we're done.
+				if !(refreshAgain.Load() && refreshRunning.CompareAndSwap(false, true)) {
+					return
+				}
+			}
+		}(targetID)
 	}
 
 	// Initial load (before app starts, no QueueUpdateDraw)
