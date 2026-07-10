@@ -82,7 +82,11 @@ func FormatIssueDetails(issue *parser.Issue) string {
 
 	// Metadata
 	result += fmt.Sprintf("[%s::b]Metadata:[-::-]\n", emphasisColor)
-	result += fmt.Sprintf("  Created: %s\n", issue.CreatedAt.Format("2006-01-02 15:04"))
+	created := issue.CreatedAt.Format("2006-01-02 15:04")
+	if issue.CreatedBy != "" {
+		created += " by " + issue.CreatedBy
+	}
+	result += fmt.Sprintf("  Created: %s\n", created)
 	result += fmt.Sprintf("  Updated: %s\n", issue.UpdatedAt.Format("2006-01-02 15:04"))
 
 	if issue.ClosedAt != nil {

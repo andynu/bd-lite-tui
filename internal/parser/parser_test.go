@@ -62,6 +62,36 @@ func TestParseFile(t *testing.T) {
 	}
 }
 
+func TestParseFile_CreatedBy(t *testing.T) {
+	tmpDir := t.TempDir()
+	jsonlPath := filepath.Join(tmpDir, "created_by.jsonl")
+
+	// First issue carries created_by (bd-lite >= gh8), second predates the
+	// field and must parse to the empty string rather than failing.
+	content := `{"id":"test-1","title":"With creator","status":"open","priority":2,"issue_type":"feature","created_at":"2026-07-09T12:07:00Z","created_by":"Andy Nutter-Upham","updated_at":"2026-07-09T12:07:00Z"}
+{"id":"test-2","title":"Without creator","status":"open","priority":2,"issue_type":"feature","created_at":"2026-06-30T17:45:00Z","updated_at":"2026-06-30T17:45:00Z"}
+`
+
+	if err := os.WriteFile(jsonlPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	issues, err := ParseFile(jsonlPath)
+	if err != nil {
+		t.Fatalf("ParseFile failed: %v", err)
+	}
+	if len(issues) != 2 {
+		t.Fatalf("Expected 2 issues, got %d", len(issues))
+	}
+
+	if issues[0].CreatedBy != "Andy Nutter-Upham" {
+		t.Errorf("Expected CreatedBy 'Andy Nutter-Upham', got %q", issues[0].CreatedBy)
+	}
+	if issues[1].CreatedBy != "" {
+		t.Errorf("Expected empty CreatedBy for issue without the field, got %q", issues[1].CreatedBy)
+	}
+}
+
 func TestParseDeduplicatesByIDLastWriteWins(t *testing.T) {
 	tmpDir := t.TempDir()
 	jsonlPath := filepath.Join(tmpDir, "dupes.jsonl")
