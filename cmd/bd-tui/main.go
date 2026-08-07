@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/andynu/bd-lite-tui/internal/app"
+	"github.com/andynu/bd-lite-tui/internal/clipboard"
 	"github.com/andynu/bd-lite-tui/internal/config"
 	"github.com/andynu/bd-lite-tui/internal/formatting"
 	"github.com/andynu/bd-lite-tui/internal/parser"
@@ -25,7 +26,6 @@ import (
 	_ "github.com/andynu/bd-lite-tui/internal/theme" // Import to register themes
 	"github.com/andynu/bd-lite-tui/internal/ui"
 	"github.com/andynu/bd-lite-tui/internal/watcher"
-	"github.com/atotto/clipboard"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
@@ -320,6 +320,26 @@ func main() {
 		})
 	}
 
+	// clip copies to the system clipboard. It resolves the display itself, so it
+	// still works in a tmux pane that was started without one.
+	clip := clipboard.New()
+
+	// copyToClipboard copies text and reports the outcome in the status bar.
+	// description is the success phrase, e.g. "tui-abc to clipboard".
+	copyToClipboard := func(text, description string) {
+		res, err := clip.Copy(text)
+		if err != nil {
+			// The message carries the helper's own diagnostic (and, in tmux, how
+			// to recover a missing display), so show it rather than an exit code.
+			log.Printf("CLIPBOARD ERROR: copying %q: %v", text, err)
+			showTemporaryStatus(errorMsg(fmt.Sprintf("Copy failed: %v", err)), statusMessageDuration)
+			return
+		}
+		log.Printf("CLIPBOARD: copied %q via %s (display recovered from tmux: %t)",
+			text, res.Helper, res.RecoveredFromTmux)
+		showTemporaryStatus(successMsg(fmt.Sprintf("✓ Copied %s", description)), statusMessageDuration)
+	}
+
 	// Single-flight guards for refreshes. Rather than serialize refreshes behind
 	// a mutex held across UI queueing (which could stall every refresh for up to
 	// queueUpdateTimeout and leak goroutines), overlapping requests coalesce:
@@ -579,14 +599,8 @@ func main() {
 
 			if clickedLine == idLine && currentDetailIssue != nil {
 				// Copy issue ID to clipboard
-				err := clipboard.WriteAll(currentDetailIssue.ID)
-				if err != nil {
-					log.Printf("CLIPBOARD ERROR: Failed to copy to clipboard: %v", err)
-					statusBar.SetText(fmt.Sprintf("[%s]Failed to copy: %v[-]", formatting.GetErrorColor(), err))
-				} else {
-					log.Printf("CLIPBOARD: Copied issue ID to clipboard: %s", currentDetailIssue.ID)
-					showTemporaryStatus(fmt.Sprintf("[%s]✓ Copied %s to clipboard[-]", formatting.GetSuccessColor(), currentDetailIssue.ID), statusMessageDuration)
-				}
+				copyToClipboard(currentDetailIssue.ID,
+					fmt.Sprintf("%s to clipboard", currentDetailIssue.ID))
 			}
 		}
 		return action, event
@@ -1276,42 +1290,22 @@ func main() {
 			case 'y':
 				// Yank (copy) issue ID to clipboard
 				if issue, ok := indexToIssue[issueList.GetCurrentItem()]; ok {
-					err := clipboard.WriteAll(issue.ID)
-					if err != nil {
-						log.Printf("CLIPBOARD ERROR: Failed to copy to clipboard: %v", err)
-						statusBar.SetText(fmt.Sprintf("[%s]Failed to copy: %v[-]", formatting.GetErrorColor(), err))
-					} else {
-						log.Printf("CLIPBOARD: Copied issue ID to clipboard: %s", issue.ID)
-						showTemporaryStatus(successMsg(fmt.Sprintf("✓ Copied %s to clipboard", issue.ID)), statusMessageDuration)
-					}
+					copyToClipboard(issue.ID, fmt.Sprintf("%s to clipboard", issue.ID))
 				}
 				return nil
 			case 'Y':
 				// Yank (copy) issue ID with title to clipboard
 				if issue, ok := indexToIssue[issueList.GetCurrentItem()]; ok {
 					text := fmt.Sprintf("%s - %s", issue.ID, issue.Title)
-					err := clipboard.WriteAll(text)
-					if err != nil {
-						log.Printf("CLIPBOARD ERROR: Failed to copy to clipboard: %v", err)
-						statusBar.SetText(fmt.Sprintf("[%s]Failed to copy: %v[-]", formatting.GetErrorColor(), err))
-					} else {
-						log.Printf("CLIPBOARD: Copied issue ID with title to clipboard: %s", text)
-						showTemporaryStatus(successMsg(fmt.Sprintf("✓ Copied '%s' to clipboard", text)), statusMessageDuration)
-					}
+					copyToClipboard(text, fmt.Sprintf("'%s' to clipboard", text))
 				}
 				return nil
 			case 'B':
 				// Copy git branch name to clipboard
 				if issue, ok := indexToIssue[issueList.GetCurrentItem()]; ok {
 					branchName := issue.ID // Simple format: just the issue ID
-					err := clipboard.WriteAll(branchName)
-					if err != nil {
-						log.Printf("CLIPBOARD ERROR: Failed to copy branch name: %v", err)
-						statusBar.SetText(fmt.Sprintf("[%s]Failed to copy: %v[-]", formatting.GetErrorColor(), err))
-					} else {
-						log.Printf("CLIPBOARD: Copied branch name to clipboard: %s", branchName)
-						showTemporaryStatus(successMsg(fmt.Sprintf("✓ Copied branch name '%s' to clipboard", branchName)), statusMessageDuration)
-					}
+					copyToClipboard(branchName,
+						fmt.Sprintf("branch name '%s' to clipboard", branchName))
 				}
 				return nil
 			case 'R':
