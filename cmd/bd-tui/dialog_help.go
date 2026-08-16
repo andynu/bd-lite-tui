@@ -61,6 +61,13 @@ func (h *DialogHelpers) ShowHelpScreen() {
 
 [cyan::b]View Controls[-::-]
   t           Toggle between list and tree view
+  v           Cycle layout: auto → columns → rows → paged → auto
+
+  The layout follows the terminal width. Under 90 columns it
+  pages: the list and the detail each take the whole screen,
+  and Tab/Enter/ESC switch between them. A pinned layout (v)
+  is marked with * in the status bar and still gives way to
+  paging when the window is too narrow to split.
   o           Collapse/expand node in tree view (vim-style fold)
   O           Expand all nodes in tree view
   Z           Collapse all nodes in tree view

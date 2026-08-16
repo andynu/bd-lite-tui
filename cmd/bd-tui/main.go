@@ -19,6 +19,7 @@ import (
 	"github.com/andynu/bd-lite-tui/internal/clipboard"
 	"github.com/andynu/bd-lite-tui/internal/config"
 	"github.com/andynu/bd-lite-tui/internal/formatting"
+	"github.com/andynu/bd-lite-tui/internal/layout"
 	"github.com/andynu/bd-lite-tui/internal/parser"
 	"github.com/andynu/bd-lite-tui/internal/state"
 	"github.com/andynu/bd-lite-tui/internal/storage"
@@ -201,11 +202,17 @@ func main() {
 	// Show closed issues in list view (default: false)
 	var showClosedIssues bool
 
-	// Layout orientation: true = vertical, false = horizontal (default)
-	var verticalLayout bool
+	// Layout state. currentLayout is what is actually mounted; layout.Resolve
+	// derives it from the terminal width, so a narrow pane pages between the
+	// list and the detail instead of splitting. layoutPin is the user's
+	// override from `v`, honored only at widths wide enough for a split.
+	var currentLayout = layout.Columns
+	var layoutPin = layout.Columns
+	var layoutPinned bool
 
-	// Detail pane visibility (default: true)
-	var detailPaneVisible = true
+	// Last terminal width seen by the draw hook, so key handlers can re-resolve
+	// the layout without waiting for the next frame.
+	var lastScreenWidth int
 
 	// Show issue ID prefix (default: true)
 	var showPrefix = true
@@ -277,9 +284,10 @@ func main() {
 			closedText = " [Showing Closed]"
 		}
 
-		layoutStr := "Horizontal"
-		if verticalLayout {
-			layoutStr = "Vertical"
+		// A trailing * means the layout is pinned rather than resolved from width.
+		layoutStr := currentLayout.String()
+		if layoutPinned {
+			layoutStr += "*"
 		}
 
 		emphasisColor := formatting.GetEmphasisColor()
@@ -606,6 +614,10 @@ func main() {
 		return action, event
 	})
 
+	// Rebuilds the main page from the current layout. Assigned once `pages`
+	// exists; declared here because updatePanelFocus below has to call it.
+	var remountLayout func()
+
 	// Helper function to update panel focus indicators
 	updatePanelFocus := func() {
 		if detailPanelFocused {
@@ -613,12 +625,21 @@ func main() {
 			issueList.SetTitle(getIssueListTitle())
 			detailPanel.SetBorderColor(tcell.ColorYellow)
 			detailPanel.SetTitle("Details [FOCUSED - Use Ctrl-d/u to scroll, ESC to return]")
-			app.SetFocus(detailPanel)
 		} else {
 			issueList.SetBorderColor(tcell.ColorDefault)
 			issueList.SetTitle(getIssueListTitle())
 			detailPanel.SetBorderColor(tcell.ColorGray)
 			detailPanel.SetTitle("Details [Press Tab or Enter to focus]")
+		}
+		// In Paged mode focus decides which panel is mounted at all, not just
+		// which border is highlighted, so the page is rebuilt before focus
+		// lands. Focusing an unmounted primitive is a no-op.
+		if currentLayout == layout.Paged && remountLayout != nil {
+			remountLayout()
+		}
+		if detailPanelFocused {
+			app.SetFocus(detailPanel)
+		} else {
 			app.SetFocus(issueList)
 		}
 		statusBar.SetText(getStatusBarText())
@@ -648,18 +669,25 @@ func main() {
 	buildLayout := func() *tview.Flex {
 		var contentFlex *tview.Flex
 
-		if !detailPaneVisible {
-			// Detail pane hidden: show only issue list
-			contentFlex = tview.NewFlex().
-				AddItem(issueList, 0, 1, true)
-		} else if verticalLayout {
-			// Vertical: list on top (40%), details on bottom (60%)
+		switch currentLayout {
+		case layout.Paged:
+			// One panel at a time, full screen, chosen by focus. Tab/Enter page
+			// into the detail, Tab/ESC page back to the list.
+			if detailPanelFocused {
+				contentFlex = tview.NewFlex().
+					AddItem(detailPanel, 0, 1, true)
+			} else {
+				contentFlex = tview.NewFlex().
+					AddItem(issueList, 0, 1, true)
+			}
+		case layout.Rows:
+			// List on top (40%), details on bottom (60%)
 			contentFlex = tview.NewFlex().
 				SetDirection(tview.FlexRow).
 				AddItem(issueList, 0, 40, !detailPanelFocused).
 				AddItem(detailPanel, 0, 60, detailPanelFocused)
-		} else {
-			// Horizontal: list on left (1 part), details on right (2 parts)
+		default:
+			// List on left (1 part), details on right (2 parts)
 			contentFlex = tview.NewFlex().
 				AddItem(issueList, 0, 1, !detailPanelFocused).
 				AddItem(detailPanel, 0, 2, detailPanelFocused)
@@ -676,6 +704,32 @@ func main() {
 	// Pages for modal dialogs
 	pages := tview.NewPages().
 		AddPage("main", flex, true, true)
+
+	// tview cannot swap a Flex's children in place, so a layout change rebuilds
+	// the main page. Modal pages sit above "main" and are left untouched.
+	remountLayout = func() {
+		pages.RemovePage("main")
+		pages.AddPage("main", buildLayout(), true, true)
+	}
+
+	// Re-resolve the layout whenever the terminal width crosses the threshold.
+	// The rebuild is queued rather than run here: calling QueueUpdateDraw
+	// synchronously from inside a draw callback deadlocks, because the event
+	// loop that would service the queue is the one blocked on this call.
+	app.SetBeforeDrawFunc(func(screen tcell.Screen) bool {
+		width, _ := screen.Size()
+		lastScreenWidth = width
+		want := layout.Resolve(width, layoutPin, layoutPinned)
+		if want == currentLayout {
+			return false
+		}
+		currentLayout = want
+		go app.QueueUpdateDraw(func() {
+			remountLayout()
+			updatePanelFocus()
+		})
+		return false
+	})
 
 	// Set up signal handler for graceful shutdown
 	sigChan := make(chan os.Signal, 1)
@@ -1042,13 +1096,8 @@ func main() {
 		case tcell.KeyEnter:
 			// If on an issue, show detail pane and focus it
 			if _, ok := indexToIssue[issueList.GetCurrentItem()]; ok {
-				if !detailPaneVisible {
-					// Show detail pane
-					detailPaneVisible = true
-					newFlex := buildLayout()
-					pages.RemovePage("main")
-					pages.AddPage("main", newFlex, true, true)
-				}
+				// In Paged mode updatePanelFocus remounts the page onto the
+				// detail; in the split modes it just moves the highlight.
 				detailPanelFocused = true
 				updatePanelFocus()
 				statusBar.SetText(getStatusBarText())
@@ -1241,13 +1290,34 @@ func main() {
 				}
 				return nil
 			case 'v':
-				// Toggle layout orientation (horizontal/vertical)
-				verticalLayout = !verticalLayout
-				newFlex := buildLayout()
-				pages.RemovePage("main")
-				pages.AddPage("main", newFlex, true, true)
-				app.SetRoot(pages, true)
-				statusBar.SetText(getStatusBarText())
+				// Cycle the layout pin: auto -> Columns -> Rows -> Paged -> auto.
+				switch {
+				case !layoutPinned:
+					layoutPin = layout.Columns
+					layoutPinned = true
+				case layoutPin == layout.Paged:
+					layoutPinned = false
+				default:
+					layoutPin = layout.Next(layoutPin)
+				}
+
+				resolved := layout.Resolve(lastScreenWidth, layoutPin, layoutPinned)
+				if resolved != currentLayout {
+					currentLayout = resolved
+					remountLayout()
+					app.SetRoot(pages, true)
+					updatePanelFocus()
+				}
+
+				// A pin the width overrides would otherwise look like a dead key.
+				if layoutPinned && resolved != layoutPin {
+					showTemporaryStatus(
+						errorMsg(fmt.Sprintf("Pinned %s, but %d cols is too narrow - showing %s",
+							layoutPin, lastScreenWidth, resolved)),
+						statusMessageDuration)
+				} else {
+					statusBar.SetText(getStatusBarText())
+				}
 				return nil
 			case 'C':
 				// Toggle showing closed issues

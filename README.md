@@ -38,7 +38,7 @@ A powerful terminal user interface for the [bd-lite](https://github.com/andynu/b
 - **Status icons** - ● (ready), ○ (blocked), ◆ (in-progress), · (closed)
 - **Type emoji** - 🐛 (bug), ✨ (feature), 📋 (task), 🎯 (epic), 🔧 (chore)
 - **Syntax highlighting** - Color-coded dependencies, labels, and metadata
-- **Responsive layout** - Adapts to terminal size with graceful degradation
+- **Responsive layout** - Side-by-side above 90 columns; below that the list and detail each take the full screen and Tab/Enter/ESC page between them
 
 ## Installation
 
@@ -119,6 +119,7 @@ Debug logs include keyboard events, refresh operations, bd command executions, a
 
 ### View Controls
 - `t` - Toggle between list and tree view
+- `v` - Cycle layout: auto → columns → rows → paged → auto
 - `C` - Toggle showing closed issues in list view
 - `f` - Quick filter (type: `p1 bug`, `feature`, etc.)
 - `S` - Show statistics dashboard
