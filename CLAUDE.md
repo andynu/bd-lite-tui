@@ -113,6 +113,42 @@ bd init --quiet --prefix test
 bd add "Test issue" -p 1
 ```
 
+#### TUI integration tests
+
+`cmd/bd-tui/tui_harness_test.go` runs the real application against a tcell
+`SimulationScreen`, so key bindings, refreshes, search and dialogs are covered
+end to end. `newTUI` (cmd/bd-tui/tui.go) exists to make this possible: it builds
+the whole app from a `tuiOptions` struct without starting the event loop.
+
+```bash
+go test ./cmd/bd-tui/ -run TestSearch -v
+go test -race ./cmd/bd-tui/          # the event loop is concurrent; run this
+```
+
+Each test gets a temp `.beads` directory written from a fixture, and the package
+var `execBdJSON` is swapped for a fake, so nothing touches the real issue store
+or shells out to `bd`.
+
+- `h.press(...)` / `h.typeRunes("gg")` queue keys into the same channel a
+  terminal feeds and return once the event loop has handled them. The
+  synchronization is an unbound key (`tcell.KeyF64`) queued behind the real
+  ones; because tview drains one ordered event channel, its arrival proves the
+  earlier keys are done. Never use `time.Sleep` for this.
+- `h.read(fn)` runs `fn` on the event loop goroutine. All widget state must be
+  read that way, or the race detector will (correctly) complain.
+- `h.waitFor(desc, cond)` polls for things the app does on a timer: the 500ms
+  post-command reload, the 200ms watcher debounce.
+- `h.screenText()` is what actually reached the screen, which is not the same as
+  what the code passed to `SetText` — tview parses `[Word]` as a style tag and
+  swallows it. Assert on rendered output when the question is "does the user see
+  this".
+- `h.calls()` returns the recorded `bd` invocations; `h.setBdResponse` installs
+  a failing one to cover error paths.
+
+Fixtures: `basicIssues()` (three ready, one closed), `treeIssues()` (a
+parent-child edge), or build your own with `newIssue(id, title, withStatus(...),
+withPriority(...), withBlockedBy(...), ...)`.
+
 ## Architecture
 
 ### High-Level Structure
