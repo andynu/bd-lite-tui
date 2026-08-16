@@ -37,11 +37,15 @@ func TestPriorityKey_UpdatesReportsAndReloads(t *testing.T) {
 	if got := h.currentIssueID(); got != "tui-aaa" {
 		t.Errorf("the reload moved the selection to %q", got)
 	}
-	// The row's own [P3] tag is not asserted: tview parses "[P3]" as a style tag
-	// and swallows it, so no priority ever reaches the screen (tui-6ajo). The
-	// detail panel renders priority without brackets, so it does show.
 	if detail := h.detailText(); !strings.Contains(detail, "P3") {
 		t.Errorf("the detail panel still shows the old priority:\n%s", detail)
+	}
+	// The row's own priority tag has to survive tview's tag parser, which reads a
+	// bare "[P3]" as a color name and swallows it (tui-6ajo). Assert on rendered
+	// output, since that is the thing that regressed. The reload's state update
+	// and redraw share one QueueUpdateDraw, so the wait above already covers it.
+	if text := h.screenText(); !strings.Contains(text, "tui-aaa [P3]") {
+		t.Errorf("the row does not show the priority tag:\n%s", text)
 	}
 }
 

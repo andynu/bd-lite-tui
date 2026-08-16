@@ -120,8 +120,14 @@ func TestViewMode_ToggleBetweenListAndTree(t *testing.T) {
 	if title := h.listTitle(); !strings.Contains(title, "[Tree]") {
 		t.Fatalf("after t: title is %q, want tree view", title)
 	}
-	if text := h.screenText(); !strings.Contains(text, "DEPENDENCY TREE") {
+	text := h.screenText()
+	if !strings.Contains(text, "DEPENDENCY TREE") {
 		t.Errorf("tree view did not render its header:\n%s", text)
+	}
+	// Tree rows escape the priority tag, or tview reads "[P1]" as a color name
+	// and swallows it (tui-6ajo).
+	if !strings.Contains(text, "tui-aaa [P1]") {
+		t.Errorf("tree row does not show the priority tag:\n%s", text)
 	}
 
 	h.typeRunes("t")

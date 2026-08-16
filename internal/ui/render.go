@@ -134,7 +134,9 @@ func formatIssueListItem(issue *parser.Issue, statusIcon string, showPrefix bool
 	displayID := formatting.FormatIssueID(issue.ID, showPrefix)
 	// Escape user-controlled fields so brackets in titles/labels are not parsed
 	// as tview color/region tags (which would corrupt display and search).
-	text := fmt.Sprintf("  [%s]%s[-] %s %s [P%d] %s",
+	// "[P1[]" is tview's escape for a literal "[P1]" — written bare, the tag
+	// parser reads "P1" as a color name and swallows the whole thing (tui-6ajo).
+	text := fmt.Sprintf("  [%s]%s[-] %s %s [P%d[] %s",
 		priorityColor, statusIcon, typeIcon, tview.Escape(displayID), issue.Priority, tview.Escape(issue.Title))
 
 	// Add labels if present
@@ -221,7 +223,8 @@ func renderTreeNode(
 	priorityColor := formatting.GetPriorityColor(issue.Priority)
 	typeIcon := formatting.GetTypeIcon(issue.IssueType)
 	displayID := formatting.FormatIssueID(issue.ID, showPrefix)
-	text := fmt.Sprintf("%s%s%s[%s]%s[-] %s [%s]%s[-] [P%d] %s",
+	// "[P%d[]" renders a literal "[P1]"; see formatIssueListItem (tui-6ajo).
+	text := fmt.Sprintf("%s%s%s[%s]%s[-] %s [%s]%s[-] [P%d[] %s",
 		prefix, branch, collapseIndicator, statusColor, statusIcon, typeIcon, priorityColor, tview.Escape(displayID), issue.Priority, tview.Escape(issue.Title))
 
 	// Add child count for collapsed nodes
