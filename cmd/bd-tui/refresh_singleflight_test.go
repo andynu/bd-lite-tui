@@ -8,9 +8,13 @@ import (
 )
 
 // singleFlight mirrors the coalescing dispatcher used by refreshIssues in
-// main(). It is replicated here so the concurrency invariants can be tested
-// directly: the refresh logic itself is a closure inside main() and not
-// otherwise reachable. If the algorithm in main() changes, update this too.
+// tui.go. It is replicated here for the one thing the real dispatcher cannot
+// offer: a hook in the middle of its critical section, which is what makes the
+// lost-wakeup window below reproducible rather than a matter of luck. If the
+// algorithm in tui.go changes, update this too.
+//
+// The real dispatcher is exercised end to end by
+// TestRefresh_BurstCoalescesAndTheLastWriteWins.
 //
 // gap, if non-nil, is invoked at the vulnerable point — after the inner loop
 // has observed no pending request but before running is cleared — so tests can

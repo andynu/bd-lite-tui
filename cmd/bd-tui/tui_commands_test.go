@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -199,6 +200,30 @@ func TestWatcher_ReloadsOnAnExternalWrite(t *testing.T) {
 	})
 	if got := h.currentIssueID(); got != "tui-bbb" {
 		t.Errorf("the watcher refresh moved the selection to %q, want tui-bbb", got)
+	}
+}
+
+// A burst of refresh requests coalesces, and whatever is on disk when the dust
+// settles is what ends up on screen. This drives the real single-flight
+// dispatcher; TestSingleFlight_* covers the lost-wakeup window that only a
+// hook in a replica of the algorithm can hit deterministically.
+func TestRefresh_BurstCoalescesAndTheLastWriteWins(t *testing.T) {
+	h := newHarness(t, basicIssues())
+
+	const writes = 50
+	for i := 0; i < writes; i++ {
+		h.issues = append(h.issues, newIssue(fmt.Sprintf("tui-b%02d", i), "Burst issue"))
+		h.writeJSONL()
+		h.tui.refreshIssues()
+	}
+
+	last := fmt.Sprintf("tui-b%02d", writes-1)
+	h.waitFor("the final write to reach the list", func() bool {
+		return h.tui.state.GetIssueByID(last) != nil
+	})
+	want := len(basicIssues()) - 1 + writes // the fixture's closed issue stays hidden
+	if ids := h.issueIDs(); len(ids) != want {
+		t.Fatalf("the coalesced refresh settled on %d rows, want %d", len(ids), want)
 	}
 }
 
