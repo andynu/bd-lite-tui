@@ -115,11 +115,8 @@ func TestDialogs_StatsCountsTheIssues(t *testing.T) {
 	}
 }
 
-// The quick filter dialog parses its query and installs the filter.
-//
-// The list itself is not asserted: the dialog never repaints after applying, so
-// the rows stay stale until something else repopulates (tui-zloy). Tighten this
-// to assert the visible rows once that is fixed.
+// The quick filter dialog parses its query, installs the filter, and repaints
+// the list and status bar on the way out (tui-zloy).
 func TestQuickFilter_AppliesTheFilter(t *testing.T) {
 	h := newHarness(t, basicIssues())
 
@@ -140,10 +137,46 @@ func TestQuickFilter_AppliesTheFilter(t *testing.T) {
 		t.Fatalf("filter is %q, want %q", active, "Priority: P1")
 	}
 
-	// A repopulate (any key that rebuilds the list) then shows only the P1 row.
-	h.typeRunes("p") // toggle the id prefix; harmless, and it repopulates
+	// No further keypress: the rows are filtered as soon as the dialog closes.
 	if ids := h.issueIDs(); len(ids) != 1 || ids[0] != "tui-aaa" {
 		t.Fatalf("filtered list is %v, want just tui-aaa", ids)
+	}
+	if text := h.screenText(); !strings.Contains(text, "⊘ FILTERED") {
+		t.Errorf("no FILTERED banner on screen:\n%s", text)
+	}
+	if text := h.statusText(); !strings.Contains(text, "[Filters: Priority: P1]") {
+		t.Errorf("status bar is %q, want it to mention the active filter", text)
+	}
+}
+
+// Re-opening the quick filter with an empty query clears the filter and puts
+// every row back, again without needing an unrelated repopulate.
+func TestQuickFilter_EmptyQueryClearsTheFilter(t *testing.T) {
+	h := newHarness(t, basicIssues())
+
+	h.typeRunes("f")
+	h.typeRunes("p1")
+	h.key(tcell.KeyEnter)
+	if ids := h.issueIDs(); len(ids) != 1 {
+		t.Fatalf("test setup: filtered list is %v, want one row", ids)
+	}
+
+	h.typeRunes("f")
+	h.key(tcell.KeyEnter) // empty query = clear all filters
+
+	var hasFilters bool
+	h.read(func() { hasFilters = h.tui.state.HasActiveFilters() })
+	if hasFilters {
+		t.Fatal("filters still active after an empty query")
+	}
+	if ids := h.issueIDs(); len(ids) != 3 {
+		t.Fatalf("list is %v, want all three open issues back", ids)
+	}
+	if text := h.screenText(); strings.Contains(text, "⊘ FILTERED") {
+		t.Errorf("FILTERED banner still on screen:\n%s", text)
+	}
+	if text := h.statusText(); strings.Contains(text, "[Filters:") {
+		t.Errorf("status bar still shows a filter: %q", text)
 	}
 }
 

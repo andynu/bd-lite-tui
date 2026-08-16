@@ -47,6 +47,7 @@ func (h *DialogHelpers) ShowQuickFilter() {
 			// Empty query = clear all filters
 			h.Pages.RemovePage("quick_filter")
 			h.App.SetFocus(h.IssueList)
+			h.filtersChanged()
 			return
 		}
 
@@ -109,6 +110,7 @@ func (h *DialogHelpers) ShowQuickFilter() {
 		// Apply filters
 		h.Pages.RemovePage("quick_filter")
 		h.App.SetFocus(h.IssueList)
+		h.filtersChanged()
 	}
 
 	form.AddButton("Apply (Enter)", applyQuickFilter)
@@ -116,6 +118,7 @@ func (h *DialogHelpers) ShowQuickFilter() {
 		h.AppState.ClearAllFilters()
 		h.Pages.RemovePage("quick_filter")
 		h.App.SetFocus(h.IssueList)
+		h.filtersChanged()
 	})
 	form.AddButton("Cancel (ESC)", func() {
 		h.Pages.RemovePage("quick_filter")

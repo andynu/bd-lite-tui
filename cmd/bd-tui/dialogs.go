@@ -28,4 +28,15 @@ type DialogHelpers struct {
 	AppState        *state.State
 	RefreshIssues   func(...string)
 	ScheduleRefresh func(string)
+	// OnFiltersChanged is called after a dialog mutates the filter state, so
+	// the caller can repaint the list and status bar. Dialogs mount and return
+	// immediately, so the caller cannot do this at the call site.
+	OnFiltersChanged func()
+}
+
+// filtersChanged notifies the caller that filter state was mutated.
+func (h *DialogHelpers) filtersChanged() {
+	if h.OnFiltersChanged != nil {
+		h.OnFiltersChanged()
+	}
 }

@@ -824,6 +824,10 @@ func newTUI(opts tuiOptions) (*tui, error) {
 		AppState:        appState,
 		RefreshIssues:   refreshIssues,
 		ScheduleRefresh: scheduleRefresh,
+		OnFiltersChanged: func() {
+			statusBar.SetText(getStatusBarText())
+			populateIssueList()
+		},
 	}
 
 	// Helper function to show comment dialog
@@ -836,11 +840,11 @@ func newTUI(opts tuiOptions) (*tui, error) {
 		dialogHelpers.ShowRenameDialog()
 	}
 
-	// Helper function to show quick filter (keyboard-friendly)
+	// Helper function to show quick filter (keyboard-friendly).
+	// The repaint happens via OnFiltersChanged once the dialog applies or
+	// clears; doing it here would run before the user has typed anything.
 	showQuickFilter := func() {
 		dialogHelpers.ShowQuickFilter()
-		statusBar.SetText(getStatusBarText())
-		populateIssueList()
 	}
 
 	// Helper function to show stats dashboard
