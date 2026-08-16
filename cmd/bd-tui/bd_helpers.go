@@ -19,7 +19,13 @@ type BdCommandResult struct {
 	Error    string          `json:"error,omitempty"`
 }
 
-// execBdJSON executes a bd command with --json flag and parses the response.
+// execBdJSON runs a bd command and parses its JSON response. It is a variable
+// rather than a plain function so tests can substitute a fake bd: every issue
+// mutation in the TUI funnels through here, so replacing it isolates the whole
+// UI from the real CLI and from the real issues.jsonl.
+var execBdJSON = execBdJSONCmd
+
+// execBdJSONCmd executes a bd command with --json flag and parses the response.
 // It handles both single object and array responses from bd commands.
 //
 // Example usage:
@@ -28,7 +34,7 @@ type BdCommandResult struct {
 //   if len(result.Issues) > 0 {
 //     updatedIssue := result.Issues[0]
 //   }
-func execBdJSON(args ...string) (*BdCommandResult, error) {
+func execBdJSONCmd(args ...string) (*BdCommandResult, error) {
 	// Add --json flag if not already present
 	hasJSON := false
 	for _, arg := range args {

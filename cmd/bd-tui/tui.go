@@ -1,0 +1,1430 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/andynu/bd-lite-tui/internal/clipboard"
+	"github.com/andynu/bd-lite-tui/internal/config"
+	"github.com/andynu/bd-lite-tui/internal/formatting"
+	"github.com/andynu/bd-lite-tui/internal/layout"
+	"github.com/andynu/bd-lite-tui/internal/parser"
+	"github.com/andynu/bd-lite-tui/internal/state"
+	"github.com/andynu/bd-lite-tui/internal/storage"
+	"github.com/andynu/bd-lite-tui/internal/theme"
+	"github.com/andynu/bd-lite-tui/internal/ui"
+	"github.com/andynu/bd-lite-tui/internal/watcher"
+	"github.com/gdamore/tcell/v2"
+	"github.com/rivo/tview"
+)
+
+const (
+	// statusMessageDuration is how long temporary status bar messages are shown.
+	statusMessageDuration = 2 * time.Second
+
+	// refreshDelay is the delay before auto-refreshing after an update command.
+	refreshDelay = 500 * time.Millisecond
+
+	// queueUpdateTimeout is the max wait for tview QueueUpdateDraw calls.
+	queueUpdateTimeout = 10 * time.Second
+
+	// loadTimeout is the max wait for issue load operations.
+	loadTimeout = 5 * time.Second
+
+	// watcherDebounce is the file watcher debounce interval.
+	watcherDebounce = 200 * time.Millisecond
+)
+
+// tuiOptions is everything newTUI needs that main() resolves from flags, the
+// environment, and the user's config. Keeping it a plain struct is what makes
+// the whole event layer reachable from a test: a test fills it in with a temp
+// .beads directory and a tcell SimulationScreen instead of a real terminal.
+type tuiOptions struct {
+	// BeadsDir is the .beads directory; collapse state is persisted there.
+	BeadsDir string
+
+	// JSONLPath is the issues.jsonl file to read and watch.
+	JSONLPath string
+
+	// IssueID, when non-empty, restricts the view to that single issue
+	// (the --issue flag). The restriction survives refreshes.
+	IssueID string
+
+	// TreeView starts the app in tree view rather than list view.
+	TreeView bool
+
+	// Screen, when non-nil, is used instead of a real terminal screen.
+	// Tests pass a tcell SimulationScreen.
+	Screen tcell.Screen
+
+	// NoWatcher skips the filesystem watcher. Tests that drive refreshes
+	// themselves use this to keep timing deterministic.
+	NoWatcher bool
+}
+
+// tui is a fully wired application: widgets, state, key bindings, and the
+// filesystem watcher. Run blocks on the tview event loop; Close releases the
+// watcher and the JSONL reader.
+type tui struct {
+	opts tuiOptions
+
+	app         *tview.Application
+	pages       *tview.Pages
+	statusBar   *tview.TextView
+	issueList   *tview.List
+	detailPanel *tview.TextView
+
+	state        *state.State
+	indexToIssue map[int]*parser.Issue
+
+	reader      *storage.JSONLReader
+	fileWatcher *watcher.Watcher
+
+	refreshIssues     func(...string)
+	saveCollapseState func()
+
+	closeOnce sync.Once
+}
+
+// newTUI builds the application without starting its event loop.
+func newTUI(opts tuiOptions) (*tui, error) {
+	// Open JSONL reader
+	jsonlReader, err := storage.NewJSONLReader(opts.JSONLPath)
+	if err != nil {
+		return nil, fmt.Errorf("opening JSONL file: %w", err)
+	}
+
+	// Initialize state
+	appState := state.New()
+
+	// Set initial view mode from command line
+	if opts.TreeView {
+		appState.SetViewMode(state.ViewTree)
+	}
+
+	// Create TUI application
+	app := tview.NewApplication()
+	if opts.Screen != nil {
+		app.SetScreen(opts.Screen)
+	}
+
+	// Apply theme background and foreground colors
+	currentTheme := theme.Current()
+	tview.Styles.PrimitiveBackgroundColor = currentTheme.AppBackground()
+	tview.Styles.PrimaryTextColor = currentTheme.AppForeground()
+	tview.Styles.ContrastBackgroundColor = currentTheme.InputFieldBackground()
+	tview.Styles.MoreContrastBackgroundColor = currentTheme.InputFieldBackground()
+
+	// Status bar
+	statusBar := tview.NewTextView().
+		SetDynamicColors(true)
+
+	// Issue list
+	issueList := tview.NewList().
+		ShowSecondaryText(false).
+		SetSelectedBackgroundColor(currentTheme.SelectionBg()).
+		SetSelectedTextColor(currentTheme.SelectionFg())
+	issueList.SetBorder(true).SetTitle("Issues")
+
+	// Track mapping from list index to issue
+	indexToIssue := make(map[int]*parser.Issue)
+
+	t := &tui{
+		opts:         opts,
+		app:          app,
+		statusBar:    statusBar,
+		issueList:    issueList,
+		state:        appState,
+		indexToIssue: indexToIssue,
+		reader:       jsonlReader,
+	}
+
+	// Vim navigation state
+	var lastKeyWasG bool
+	var searchMode bool
+	var searchQuery string
+	var searchMatches []int
+	var currentSearchIndex int
+
+	// Two-character shortcut state
+	var lastKeyWasS bool // For status shortcuts (So, Si, Sb, Sc)
+
+	// ESC to quit state (double-press within 1 second)
+	var lastEscapeTime time.Time
+
+	// Mouse mode state (default: enabled)
+	var mouseEnabled = true
+
+	// Panel focus state (true = detail panel, false = issue list)
+	var detailPanelFocused bool
+
+	// Show closed issues in list view (default: false)
+	var showClosedIssues bool
+
+	// Layout state. currentLayout is what is actually mounted; layout.Resolve
+	// derives it from the terminal width, so a narrow pane pages between the
+	// list and the detail instead of splitting. layoutPin is the user's
+	// override from `v`, honored only at widths wide enough for a split.
+	var currentLayout = layout.Columns
+	var layoutPin = layout.Columns
+	var layoutPinned bool
+
+	// Last terminal width seen by the draw hook, so key handlers can re-resolve
+	// the layout without waiting for the next frame.
+	var lastScreenWidth int
+
+	// Show issue ID prefix (default: true)
+	var showPrefix = true
+
+	// Track currently displayed issue in detail panel (for clipboard copy)
+	var currentDetailIssue *parser.Issue
+
+	// Helper functions for themed messages
+	successMsg := func(msg string) string {
+		return fmt.Sprintf("[%s]%s[-]", formatting.GetSuccessColor(), msg)
+	}
+	errorMsg := func(msg string) string {
+		return fmt.Sprintf("[%s]%s[-]", formatting.GetErrorColor(), msg)
+	}
+	_ = func(msg string) string { // emphasisMsg - reserved for future use
+		return fmt.Sprintf("[%s]%s[-]", formatting.GetEmphasisColor(), msg)
+	}
+
+	// Helper function to generate issue list title with view mode indicator
+	getIssueListTitle := func() string {
+		mode := "List"
+		toggle := "Tree"
+		if appState.GetViewMode() == state.ViewTree {
+			mode = "Tree"
+			toggle = "List"
+		}
+		// Show position indicator if on an issue
+		posStr := ""
+		if issueList.GetItemCount() > 0 {
+			currentIdx := issueList.GetCurrentItem()
+			if _, ok := indexToIssue[currentIdx]; ok {
+				// Count which issue number this is (1-based)
+				issueNum := 0
+				for i := 0; i <= currentIdx; i++ {
+					if _, ok := indexToIssue[i]; ok {
+						issueNum++
+					}
+				}
+				posStr = fmt.Sprintf(" %d/%d", issueNum, len(indexToIssue))
+			}
+		}
+		return fmt.Sprintf("Issues [%s]%s (t:%s)", mode, posStr, toggle)
+	}
+
+	// Helper function to generate status bar text
+	getStatusBarText := func() string {
+		mouseStr := "OFF"
+		if mouseEnabled {
+			mouseStr = "ON"
+		}
+		focusStr := "List"
+		if detailPanelFocused {
+			focusStr = "Details"
+		}
+
+		// Count visible issues after filtering
+		visibleCount := len(appState.GetReadyIssues()) + len(appState.GetBlockedIssues()) + len(appState.GetInProgressIssues())
+		if showClosedIssues {
+			visibleCount += len(appState.GetClosedIssues())
+		}
+
+		filterText := ""
+		if appState.HasActiveFilters() {
+			filterText = fmt.Sprintf(" [Filters: %s]", appState.GetActiveFilters())
+		}
+
+		closedText := ""
+		if showClosedIssues {
+			closedText = " [Showing Closed]"
+		}
+
+		// A trailing * means the layout is pinned rather than resolved from width.
+		layoutStr := currentLayout.String()
+		if layoutPinned {
+			layoutStr += "*"
+		}
+
+		emphasisColor := formatting.GetEmphasisColor()
+		return fmt.Sprintf("[%s]Beads TUI[-] - %s (%d issues)%s%s [%s] [Mouse: %s] [Focus: %s] [? help | v layout]",
+			emphasisColor, opts.BeadsDir, visibleCount, filterText, closedText, layoutStr, mouseStr, focusStr)
+	}
+
+	// Helper function to populate issue list from state
+	populateIssueList := func() {
+		ui.PopulateIssueList(issueList, appState, showClosedIssues, showPrefix, indexToIssue)
+	}
+
+	// safeQueueUpdateDraw wraps app.QueueUpdateDraw with timeout protection
+	// to prevent hanging if the tview event loop becomes unresponsive
+	safeQueueUpdateDraw := func(f func()) {
+		done := make(chan struct{})
+		go func() {
+			app.QueueUpdateDraw(f)
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			// Success - update queued normally
+		case <-time.After(queueUpdateTimeout):
+			log.Printf("WARNING: QueueUpdateDraw timed out after 10s")
+		}
+	}
+
+	// showTemporaryStatus displays a message in the status bar that auto-clears
+	// after the given duration, reverting to the default status bar text.
+	showTemporaryStatus := func(msg string, duration time.Duration) {
+		statusBar.SetText(msg)
+		time.AfterFunc(duration, func() {
+			safeQueueUpdateDraw(func() {
+				statusBar.SetText(getStatusBarText())
+			})
+		})
+	}
+
+	// clip copies to the system clipboard. It resolves the display itself, so it
+	// still works in a tmux pane that was started without one.
+	clip := clipboard.New()
+
+	// copyToClipboard copies text and reports the outcome in the status bar.
+	// description is the success phrase, e.g. "tui-abc to clipboard".
+	copyToClipboard := func(text, description string) {
+		res, err := clip.Copy(text)
+		if err != nil {
+			// The message carries the helper's own diagnostic (and, in tmux, how
+			// to recover a missing display), so show it rather than an exit code.
+			log.Printf("CLIPBOARD ERROR: copying %q: %v", text, err)
+			showTemporaryStatus(errorMsg(fmt.Sprintf("Copy failed: %v", err)), statusMessageDuration)
+			return
+		}
+		log.Printf("CLIPBOARD: copied %q via %s (display recovered from tmux: %t)",
+			text, res.Helper, res.RecoveredFromTmux)
+		showTemporaryStatus(successMsg(fmt.Sprintf("✓ Copied %s", description)), statusMessageDuration)
+	}
+
+	// Single-flight guards for refreshes. Rather than serialize refreshes behind
+	// a mutex held across UI queueing (which could stall every refresh for up to
+	// queueUpdateTimeout and leak goroutines), overlapping requests coalesce:
+	// refreshRunning marks an in-flight refresh and refreshAgain records that
+	// another was requested while one was running.
+	var refreshRunning atomic.Bool
+	var refreshAgain atomic.Bool
+
+	// Refresh timer for single-flight pattern (prevent timer pile-up)
+	var refreshTimer *time.Timer
+	var refreshTimerMutex sync.Mutex
+
+	// Forward declare refreshIssues for use in scheduleRefresh
+	var refreshIssues func(...string)
+
+	// scheduleRefresh schedules a delayed refresh, cancelling any pending refresh
+	// This prevents timer pile-up when user performs rapid actions
+	scheduleRefresh := func(issueID string) {
+		refreshTimerMutex.Lock()
+		defer refreshTimerMutex.Unlock()
+
+		// Cancel existing timer if present
+		if refreshTimer != nil {
+			refreshTimer.Stop()
+		}
+
+		// Schedule new refresh
+		refreshTimer = time.AfterFunc(refreshDelay, func() {
+			log.Printf("SCHEDULE: Delayed refresh starting for issue: %s", issueID)
+			refreshIssues(issueID)
+		})
+		log.Printf("SCHEDULE: Refresh scheduled in 500ms for issue: %s", issueID)
+	}
+
+	// doRefresh performs one load+apply cycle. The JSONL load runs on the calling
+	// (background) goroutine; state mutation and the UI rebuild happen together
+	// inside a single QueueUpdateDraw on the main thread. Doing both on the main
+	// thread means background loads never race with main-thread reads, and no
+	// lock is held across UI queueing. targetIssueID selects which issue to keep
+	// selected; empty means auto-preserve the current selection.
+	doRefresh := func(targetIssueID string) {
+		log.Printf("REFRESH: Starting issue load")
+
+		// Load issues from JSONL with timeout (off the main thread).
+		ctx, cancel := context.WithTimeout(context.Background(), loadTimeout)
+		issues, err := jsonlReader.LoadIssues(ctx)
+		cancel()
+		if err != nil {
+			log.Printf("REFRESH ERROR: Failed to load issues: %v", err)
+			errText := fmt.Sprintf("Error loading issues: %v", err)
+			app.QueueUpdateDraw(func() {
+				statusBar.SetText(errorMsg(errText))
+			})
+			return
+		}
+		log.Printf("REFRESH: Loaded %d issues from JSONL", len(issues))
+
+		// Honor the --issue single-issue filter across refreshes. Without this,
+		// any watcher event or manual refresh would reload the full issue set and
+		// silently discard the filter the user launched with.
+		if opts.IssueID != "" {
+			filtered := make([]*parser.Issue, 0, 1)
+			for _, issue := range issues {
+				if issue.ID == opts.IssueID {
+					filtered = append(filtered, issue)
+					break
+				}
+			}
+			issues = filtered
+		}
+
+		// Apply state + UI together on the main thread.
+		app.QueueUpdateDraw(func() {
+			log.Printf("REFRESH: UI update executing")
+
+			// Resolve the selection to preserve, reading UI state on the main
+			// thread (before the list is rebuilt).
+			previousIndex := issueList.GetCurrentItem()
+			target := targetIssueID
+			if target == "" {
+				if currentIssue, ok := indexToIssue[previousIndex]; ok {
+					target = currentIssue.ID
+				}
+			}
+
+			appState.LoadIssues(issues)
+			statusBar.SetText(getStatusBarText())
+			populateIssueList()
+
+			// Restore selection.
+			if target != "" {
+				found := false
+				for idx, issue := range indexToIssue {
+					if issue.ID == target {
+						issueList.SetCurrentItem(idx)
+						found = true
+						break
+					}
+				}
+				// If the issue is no longer in the list (e.g., it was closed),
+				// keep the cursor at the same position or the last item.
+				if !found {
+					if itemCount := issueList.GetItemCount(); itemCount > 0 {
+						if previousIndex >= itemCount {
+							previousIndex = itemCount - 1
+						}
+						issueList.SetCurrentItem(previousIndex)
+					}
+				}
+			}
+
+			log.Printf("REFRESH: UI update complete")
+		})
+		log.Printf("REFRESH: Issue refresh complete")
+	}
+
+	// refreshIssues triggers a refresh. It is non-blocking and single-flight:
+	// concurrent callers (file watcher, manual 'r', post-update scheduleRefresh)
+	// coalesce into at most one in-flight refresh plus one queued re-run, so
+	// bursts of changes collapse instead of piling up goroutines.
+	//
+	// preserveIssueID: if provided, the next refresh restores selection to it;
+	// coalesced re-runs fall back to auto-preserving the current selection
+	// (which, after an in-place update, is the same issue).
+	refreshIssues = func(preserveIssueID ...string) {
+		targetID := ""
+		if len(preserveIssueID) > 0 {
+			targetID = preserveIssueID[0]
+		}
+
+		refreshAgain.Store(true)
+		if !refreshRunning.CompareAndSwap(false, true) {
+			// A refresh is already running; it will pick up the request above.
+			return
+		}
+
+		go func(firstTarget string) {
+			for {
+				for refreshAgain.CompareAndSwap(true, false) {
+					doRefresh(firstTarget)
+					firstTarget = "" // coalesced re-runs auto-preserve selection
+				}
+				refreshRunning.Store(false)
+				// A request may have arrived between the failed CAS above and the
+				// Store; re-acquire the slot if so, otherwise we're done.
+				if !(refreshAgain.Load() && refreshRunning.CompareAndSwap(false, true)) {
+					return
+				}
+			}
+		}(targetID)
+	}
+	t.refreshIssues = refreshIssues
+
+	// Initial load (before app starts, no QueueUpdateDraw)
+	ctx, cancel := context.WithTimeout(context.Background(), loadTimeout)
+	issues, err := jsonlReader.LoadIssues(ctx)
+	cancel()
+	if err != nil {
+		return nil, fmt.Errorf("loading issues: %w", err)
+	}
+	appState.LoadIssues(issues)
+
+	// Load collapse state from disk (persisted between sessions)
+	collapseState, err := config.LoadCollapseState(opts.BeadsDir)
+	if err != nil {
+		log.Printf("Warning: failed to load collapse state: %v", err)
+	} else {
+		appState.SetCollapsedNodes(collapseState.CollapsedNodes)
+		log.Printf("Loaded collapse state: %d nodes", len(collapseState.CollapsedNodes))
+	}
+
+	// Helper function to save collapse state (called on toggle and exit)
+	saveCollapseState := func() {
+		st := &config.CollapseState{
+			CollapsedNodes: appState.GetCollapsedNodes(),
+		}
+		if err := config.SaveCollapseState(opts.BeadsDir, st); err != nil {
+			log.Printf("Warning: failed to save collapse state: %v", err)
+		} else {
+			log.Printf("Saved collapse state: %d nodes", len(st.CollapsedNodes))
+		}
+	}
+	t.saveCollapseState = saveCollapseState
+
+	// Filter by issue ID if specified
+	if opts.IssueID != "" {
+		filtered := make([]*parser.Issue, 0)
+		for _, issue := range issues {
+			if issue.ID == opts.IssueID {
+				filtered = append(filtered, issue)
+				break
+			}
+		}
+		if len(filtered) == 0 {
+			return nil, fmt.Errorf("issue %s not found", opts.IssueID)
+		}
+		appState.LoadIssues(filtered)
+	}
+
+	statusBar.SetText(getStatusBarText())
+	populateIssueList()
+
+	// Set up filesystem watcher on the JSONL file
+	if !opts.NoWatcher {
+		log.Printf("Setting up file watcher on: %s", opts.JSONLPath)
+		fileWatcher, err := watcher.New(opts.JSONLPath, watcherDebounce, func() {
+			log.Printf("WATCHER: File change detected, triggering refresh")
+			refreshIssues()
+		})
+		if err != nil {
+			log.Printf("WATCHER ERROR: Failed to create watcher: %v", err)
+			fmt.Fprintf(os.Stderr, "Warning: failed to set up file watcher: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Live updates will not work. Press 'r' to manually refresh.\n")
+		} else {
+			if err := fileWatcher.Start(); err != nil {
+				log.Printf("WATCHER ERROR: Failed to start watcher: %v", err)
+				fmt.Fprintf(os.Stderr, "Warning: failed to start file watcher: %v\n", err)
+			} else {
+				log.Printf("WATCHER: File watcher started successfully")
+			}
+			t.fileWatcher = fileWatcher
+		}
+	}
+
+	// Detail panel
+	detailPanel := tview.NewTextView().
+		SetDynamicColors(true).
+		SetScrollable(true).
+		SetWrap(true)
+	detailPanel.SetBorder(true).SetTitle("Details")
+	detailPanel.SetText(fmt.Sprintf("[%s]Navigate to an issue to view details[-]", formatting.GetEmphasisColor()))
+	t.detailPanel = detailPanel
+
+	// Add mouse click handler for copying issue ID
+	detailPanel.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+		if action == tview.MouseLeftClick && currentDetailIssue != nil {
+			// Get click position
+			_, y := event.Position()
+			// Get the detail panel's position and width
+			_, panelY, innerWidth, _ := detailPanel.GetInnerRect()
+
+			// Translate the click to a content line, accounting for scroll.
+			rowOffset, _ := detailPanel.GetScrollOffset()
+			clickedLine := (y - panelY) + rowOffset
+
+			// The ID lives on the line after the (possibly wrapped) title. Use
+			// tview's own word-wrap to find where the title ends rather than
+			// assuming the title fits on a single line.
+			idLine := 1
+			if innerWidth > 0 {
+				typeIcon := formatting.GetTypeIcon(currentDetailIssue.IssueType)
+				titleText := fmt.Sprintf("%s %s", typeIcon, currentDetailIssue.Title)
+				if n := len(tview.WordWrap(titleText, innerWidth)); n > 0 {
+					idLine = n
+				}
+			}
+
+			if clickedLine == idLine && currentDetailIssue != nil {
+				// Copy issue ID to clipboard
+				copyToClipboard(currentDetailIssue.ID,
+					fmt.Sprintf("%s to clipboard", currentDetailIssue.ID))
+			}
+		}
+		return action, event
+	})
+
+	// Rebuilds the main page from the current layout. Assigned once `pages`
+	// exists; declared here because updatePanelFocus below has to call it.
+	var remountLayout func()
+
+	// Helper function to update panel focus indicators
+	updatePanelFocus := func() {
+		if detailPanelFocused {
+			issueList.SetBorderColor(tcell.ColorGray)
+			issueList.SetTitle(getIssueListTitle())
+			detailPanel.SetBorderColor(tcell.ColorYellow)
+			detailPanel.SetTitle("Details [FOCUSED - Use Ctrl-d/u to scroll, ESC to return]")
+		} else {
+			issueList.SetBorderColor(tcell.ColorDefault)
+			issueList.SetTitle(getIssueListTitle())
+			detailPanel.SetBorderColor(tcell.ColorGray)
+			detailPanel.SetTitle("Details [Press Tab or Enter to focus]")
+		}
+		// In Paged mode focus decides which panel is mounted at all, not just
+		// which border is highlighted, so the page is rebuilt before focus
+		// lands. Focusing an unmounted primitive is a no-op.
+		if currentLayout == layout.Paged && remountLayout != nil {
+			remountLayout()
+		}
+		if detailPanelFocused {
+			app.SetFocus(detailPanel)
+		} else {
+			app.SetFocus(issueList)
+		}
+		statusBar.SetText(getStatusBarText())
+	}
+	// Set initial focus state
+	updatePanelFocus()
+
+	// Function to show issue details
+	showIssueDetails := func(issue *parser.Issue) {
+		currentDetailIssue = issue
+		details := formatting.FormatIssueDetails(issue)
+		detailPanel.SetText(details)
+		detailPanel.ScrollToBeginning()
+	}
+
+	// Set up change handler to auto-show details on selection change
+	issueList.SetChangedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
+		// Check if the selected item is an issue (not a header)
+		if issue, ok := indexToIssue[index]; ok {
+			showIssueDetails(issue)
+		}
+		// Update title to reflect current position
+		issueList.SetTitle(getIssueListTitle())
+	})
+
+	// Layout builder function
+	buildLayout := func() *tview.Flex {
+		var contentFlex *tview.Flex
+
+		switch currentLayout {
+		case layout.Paged:
+			// One panel at a time, full screen, chosen by focus. Tab/Enter page
+			// into the detail, Tab/ESC page back to the list.
+			if detailPanelFocused {
+				contentFlex = tview.NewFlex().
+					AddItem(detailPanel, 0, 1, true)
+			} else {
+				contentFlex = tview.NewFlex().
+					AddItem(issueList, 0, 1, true)
+			}
+		case layout.Rows:
+			// List on top (40%), details on bottom (60%)
+			contentFlex = tview.NewFlex().
+				SetDirection(tview.FlexRow).
+				AddItem(issueList, 0, 40, !detailPanelFocused).
+				AddItem(detailPanel, 0, 60, detailPanelFocused)
+		default:
+			// List on left (1 part), details on right (2 parts)
+			contentFlex = tview.NewFlex().
+				AddItem(issueList, 0, 1, !detailPanelFocused).
+				AddItem(detailPanel, 0, 2, detailPanelFocused)
+		}
+
+		return tview.NewFlex().
+			SetDirection(tview.FlexRow).
+			AddItem(statusBar, 1, 0, false).
+			AddItem(contentFlex, 0, 1, true)
+	}
+
+	flex := buildLayout()
+
+	// Pages for modal dialogs
+	pages := tview.NewPages().
+		AddPage("main", flex, true, true)
+	t.pages = pages
+
+	// tview cannot swap a Flex's children in place, so a layout change rebuilds
+	// the main page. Modal pages sit above "main" and are left untouched.
+	remountLayout = func() {
+		pages.RemovePage("main")
+		pages.AddPage("main", buildLayout(), true, true)
+	}
+
+	// Re-resolve the layout whenever the terminal width crosses the threshold.
+	// The rebuild is queued rather than run here: calling QueueUpdateDraw
+	// synchronously from inside a draw callback deadlocks, because the event
+	// loop that would service the queue is the one blocked on this call.
+	app.SetBeforeDrawFunc(func(screen tcell.Screen) bool {
+		width, _ := screen.Size()
+		lastScreenWidth = width
+		want := layout.Resolve(width, layoutPin, layoutPinned)
+		if want == currentLayout {
+			return false
+		}
+		currentLayout = want
+		go app.QueueUpdateDraw(func() {
+			remountLayout()
+			updatePanelFocus()
+		})
+		return false
+	})
+
+	// Helper function to perform search
+	performSearch := func(query string) {
+		searchMatches = nil
+		currentSearchIndex = -1
+
+		if query == "" {
+			return
+		}
+
+		emphasisColor := formatting.GetEmphasisColor()
+		errorColor := formatting.GetErrorColor()
+
+		// Search through all currently-rendered rows (matches ID, title, labels -
+		// everything shown in the row text).
+		for i := 0; i < issueList.GetItemCount(); i++ {
+			mainText, _ := issueList.GetItemText(i)
+			// Simple case-insensitive substring search
+			if len(mainText) > 0 && formatting.ContainsCaseInsensitive(mainText, query) {
+				searchMatches = append(searchMatches, i)
+			}
+		}
+
+		// Jump to first match if any
+		if len(searchMatches) > 0 {
+			currentSearchIndex = 0
+			issueList.SetCurrentItem(searchMatches[0])
+			statusBar.SetText(fmt.Sprintf("[%s]Search:[-] %s [%d/%d matches] [Press n/N for next/prev, ESC to exit search]",
+				emphasisColor, query, 1, len(searchMatches)))
+			return
+		}
+
+		// No visible match. The target may exist but be hidden - collapsed under a
+		// parent in tree view, filtered out, or closed. Find it in the full issue
+		// set (ID-first), then reveal and select it.
+		target := appState.FindIssueByQuery(query)
+		if target == nil {
+			statusBar.SetText(fmt.Sprintf("[%s]Search:[-] %s [No matches]", errorColor, query))
+			return
+		}
+
+		revealed := false
+
+		// Closed issues only render in list view with "show closed" enabled.
+		if target.Status == parser.StatusClosed {
+			if appState.GetViewMode() == state.ViewTree {
+				appState.SetViewMode(state.ViewList)
+				issueList.SetTitle(getIssueListTitle())
+				revealed = true
+			}
+			if !showClosedIssues {
+				showClosedIssues = true
+				revealed = true
+			}
+		}
+
+		// Clear filters if they would hide the target.
+		if appState.HasActiveFilters() && !appState.IssuePassesFilters(target) {
+			appState.ClearAllFilters()
+			revealed = true
+		}
+
+		// Expand collapsed ancestors in tree view.
+		if appState.GetViewMode() == state.ViewTree && appState.ExpandAncestors(target.ID) {
+			revealed = true
+		}
+
+		populateIssueList()
+
+		// Locate the (now visible) row for the target and select it.
+		matchIndex := -1
+		for idx, iss := range indexToIssue {
+			if iss.ID == target.ID {
+				matchIndex = idx
+				break
+			}
+		}
+
+		if matchIndex >= 0 {
+			searchMatches = []int{matchIndex}
+			currentSearchIndex = 0
+			issueList.SetCurrentItem(matchIndex)
+			revealNote := ""
+			if revealed {
+				revealNote = " [revealed]"
+			}
+			statusBar.SetText(fmt.Sprintf("[%s]Search:[-] %s [matched %s]%s [ESC to exit search]",
+				emphasisColor, query, target.ID, revealNote))
+		} else {
+			statusBar.SetText(fmt.Sprintf("[%s]Search:[-] %s [matched %s but it could not be displayed]",
+				errorColor, query, target.ID))
+		}
+	}
+
+	// Helper function for next search result
+	nextSearchMatch := func() {
+		if len(searchMatches) == 0 {
+			return
+		}
+		currentSearchIndex = (currentSearchIndex + 1) % len(searchMatches)
+		issueList.SetCurrentItem(searchMatches[currentSearchIndex])
+		statusBar.SetText(fmt.Sprintf("[%s]Search:[-] %s [%d/%d matches] [Press n/N for next/prev, ESC to exit search]",
+			formatting.GetEmphasisColor(), searchQuery, currentSearchIndex+1, len(searchMatches)))
+	}
+
+	// Helper function for previous search result
+	prevSearchMatch := func() {
+		if len(searchMatches) == 0 {
+			return
+		}
+		currentSearchIndex--
+		if currentSearchIndex < 0 {
+			currentSearchIndex = len(searchMatches) - 1
+		}
+		issueList.SetCurrentItem(searchMatches[currentSearchIndex])
+		statusBar.SetText(fmt.Sprintf("[%s]Search:[-] %s [%d/%d matches] [Press n/N for next/prev, ESC to exit search]",
+			formatting.GetEmphasisColor(), searchQuery, currentSearchIndex+1, len(searchMatches)))
+	}
+
+	// Create dialog helpers for all dialog functions
+	dialogHelpers := &DialogHelpers{
+		App:             app,
+		Pages:           pages,
+		IssueList:       issueList,
+		IndexToIssue:    &indexToIssue,
+		StatusBar:       statusBar,
+		AppState:        appState,
+		RefreshIssues:   refreshIssues,
+		ScheduleRefresh: scheduleRefresh,
+	}
+
+	// Helper function to show comment dialog
+	showCommentDialog := func() {
+		dialogHelpers.ShowCommentDialog()
+	}
+
+	// Helper function to show rename dialog
+	showRenameDialog := func() {
+		dialogHelpers.ShowRenameDialog()
+	}
+
+	// Helper function to show quick filter (keyboard-friendly)
+	showQuickFilter := func() {
+		dialogHelpers.ShowQuickFilter()
+		statusBar.SetText(getStatusBarText())
+		populateIssueList()
+	}
+
+	// Helper function to show stats dashboard
+	showStatsOverlay := func() {
+		dialogHelpers.ShowStatsOverlay()
+	}
+
+	// Helper function to show help screen
+	showHelpScreen := func() {
+		dialogHelpers.ShowHelpScreen()
+	}
+
+	// Helper function to manage dependencies
+	showDependencyDialog := func() {
+		dialogHelpers.ShowDependencyDialog()
+	}
+
+	// Helper function to manage labels
+	showLabelDialog := func() {
+		dialogHelpers.ShowLabelDialog()
+	}
+
+	// Helper function to close issue with optional reason
+	showCloseIssueDialog := func() {
+		dialogHelpers.ShowCloseIssueDialog()
+	}
+
+	// Helper function to reopen closed issue with optional reason
+	showReopenIssueDialog := func() {
+		dialogHelpers.ShowReopenIssueDialog()
+	}
+
+	// Helper function to show edit form (in-TUI editing, similar to create issue form)
+	showEditForm := func() {
+		dialogHelpers.ShowEditForm()
+	}
+
+	// Helper function to show issue creation dialog
+	showCreateIssueDialog := func() {
+		dialogHelpers.ShowCreateIssueDialog()
+	}
+
+	// Set up key bindings
+	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		// Log all keyboard events in debug mode
+		log.Printf("KEY EVENT: key=%v rune=%q mod=%v searchMode=%v detailFocus=%v",
+			event.Key(), event.Rune(), event.Modifiers(), searchMode, detailPanelFocused)
+
+		// If a modal is showing (not on main page), let the modal handle all input
+		currentPage, _ := pages.GetFrontPage()
+		if currentPage != "main" {
+			return event
+		}
+
+		// Handle search mode
+		if searchMode {
+			switch event.Key() {
+			case tcell.KeyEscape:
+				searchMode = false
+				searchQuery = ""
+				statusBar.SetText(getStatusBarText())
+				return nil
+			case tcell.KeyEnter:
+				performSearch(searchQuery)
+				searchMode = false
+				return nil
+			case tcell.KeyBackspace, tcell.KeyBackspace2:
+				if len(searchQuery) > 0 {
+					// Trim a full rune, not a single byte, so multi-byte UTF-8
+					// input isn't corrupted into invalid sequences.
+					runes := []rune(searchQuery)
+					searchQuery = string(runes[:len(runes)-1])
+					statusBar.SetText(fmt.Sprintf("[%s]Search:[-] %s_", formatting.GetEmphasisColor(), searchQuery))
+				}
+				return nil
+			case tcell.KeyRune:
+				searchQuery += string(event.Rune())
+				statusBar.SetText(fmt.Sprintf("[%s]Search:[-] %s_", formatting.GetEmphasisColor(), searchQuery))
+				return nil
+			}
+			return nil
+		}
+
+		// Handle detail panel scrolling when focused
+		if detailPanelFocused {
+			switch event.Key() {
+			case tcell.KeyTab:
+				// Return focus to issue list (toggle behavior)
+				detailPanelFocused = false
+				updatePanelFocus()
+				return nil
+			case tcell.KeyEscape:
+				// Return focus to issue list (keep detail pane visible)
+				detailPanelFocused = false
+				updatePanelFocus()
+				return nil
+			case tcell.KeyCtrlD:
+				// Scroll down half page
+				_, _, _, height := detailPanel.GetInnerRect()
+				for i := 0; i < height/2; i++ {
+					detailPanel.InputHandler()(tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone), nil)
+				}
+				return nil
+			case tcell.KeyCtrlU:
+				// Scroll up half page
+				_, _, _, height := detailPanel.GetInnerRect()
+				for i := 0; i < height/2; i++ {
+					detailPanel.InputHandler()(tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModNone), nil)
+				}
+				return nil
+			case tcell.KeyCtrlE:
+				// Scroll down one line
+				detailPanel.InputHandler()(tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone), nil)
+				return nil
+			case tcell.KeyCtrlY:
+				// Scroll up one line
+				detailPanel.InputHandler()(tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModNone), nil)
+				return nil
+			case tcell.KeyCtrlF:
+				// Scroll down full page (vim style)
+				detailPanel.InputHandler()(tcell.NewEventKey(tcell.KeyPgDn, 0, tcell.ModNone), nil)
+				return nil
+			case tcell.KeyCtrlB:
+				// Scroll up full page (vim style)
+				detailPanel.InputHandler()(tcell.NewEventKey(tcell.KeyPgUp, 0, tcell.ModNone), nil)
+				return nil
+			case tcell.KeyPgDn:
+				// Page down
+				detailPanel.InputHandler()(tcell.NewEventKey(tcell.KeyPgDn, 0, tcell.ModNone), nil)
+				return nil
+			case tcell.KeyPgUp:
+				// Page up
+				detailPanel.InputHandler()(tcell.NewEventKey(tcell.KeyPgUp, 0, tcell.ModNone), nil)
+				return nil
+			case tcell.KeyHome:
+				// Jump to top
+				detailPanel.ScrollToBeginning()
+				return nil
+			case tcell.KeyEnd:
+				// Jump to end
+				detailPanel.ScrollToEnd()
+				return nil
+			}
+			// Allow other keys to pass through
+			return event
+		}
+
+		// Normal mode key bindings (issue list focused)
+		switch event.Key() {
+		case tcell.KeyEscape:
+			// Clear search matches on ESC if any exist
+			if len(searchMatches) > 0 {
+				searchMatches = nil
+				currentSearchIndex = -1
+				statusBar.SetText(getStatusBarText())
+				return nil
+			}
+
+			// Double ESC to quit (vim-style)
+			now := time.Now()
+			if !lastEscapeTime.IsZero() && now.Sub(lastEscapeTime) < time.Second {
+				// Second ESC within 1 second - quit
+				saveCollapseState() // Persist before exit
+				app.Stop()
+				return nil
+			}
+			// First ESC - show hint
+			lastEscapeTime = now
+			statusBar.SetText(fmt.Sprintf("[%s]Press ESC again to quit (or 'q')[-]", formatting.GetEmphasisColor()))
+
+			// Clear the hint after 1 second. Both the read and the write of
+			// lastEscapeTime happen inside QueueUpdateDraw so all access to this
+			// (and the other input-state vars) stays on the tview event loop
+			// goroutine — avoiding a data race with the input handler.
+			go func() {
+				time.Sleep(time.Second)
+				app.QueueUpdateDraw(func() {
+					if time.Since(lastEscapeTime) >= time.Second {
+						lastEscapeTime = time.Time{}
+						statusBar.SetText(getStatusBarText())
+					}
+				})
+			}()
+			return nil
+		case tcell.KeyTab:
+			// Focus detail panel
+			detailPanelFocused = true
+			updatePanelFocus()
+			return nil
+		case tcell.KeyEnter:
+			// If on an issue, show detail pane and focus it
+			if _, ok := indexToIssue[issueList.GetCurrentItem()]; ok {
+				// In Paged mode updatePanelFocus remounts the page onto the
+				// detail; in the split modes it just moves the highlight.
+				detailPanelFocused = true
+				updatePanelFocus()
+				statusBar.SetText(getStatusBarText())
+				return nil
+			}
+			return event
+		case tcell.KeyCtrlB:
+			// Scroll up full page (vim style)
+			_, _, _, height := issueList.GetInnerRect()
+			currentItem := issueList.GetCurrentItem()
+			newItem := currentItem - height
+			if newItem < 0 {
+				newItem = 0
+			}
+			issueList.SetCurrentItem(newItem)
+			return nil
+		case tcell.KeyCtrlF:
+			// Scroll down full page (vim style)
+			_, _, _, height := issueList.GetInnerRect()
+			currentItem := issueList.GetCurrentItem()
+			maxItem := issueList.GetItemCount() - 1
+			newItem := currentItem + height
+			if newItem > maxItem {
+				newItem = maxItem
+			}
+			issueList.SetCurrentItem(newItem)
+			return nil
+		case tcell.KeyRune:
+			// Handle space bar for page down with wrapping
+			if event.Rune() == ' ' {
+				_, _, _, height := issueList.GetInnerRect()
+				currentItem := issueList.GetCurrentItem()
+				maxItem := issueList.GetItemCount() - 1
+				newItem := currentItem + height
+				if newItem > maxItem {
+					// Wrap to top
+					newItem = 0
+				}
+				issueList.SetCurrentItem(newItem)
+				return nil
+			}
+			// Handle multi-key sequences FIRST before processing individual keys
+			// This prevents conflicts with single-key handlers
+
+			// Handle status shortcuts (S + second char)
+			if lastKeyWasS {
+				var newStatus string
+				switch event.Rune() {
+				case 'o':
+					newStatus = "open"
+				case 'i':
+					newStatus = "in_progress"
+				case 'b':
+					newStatus = "blocked"
+				case 'c':
+					newStatus = "closed"
+				default:
+					// Invalid second key, reset and fall through
+					lastKeyWasS = false
+					statusBar.SetText(getStatusBarText())
+					return nil
+				}
+
+				// Execute status update
+				if issue, ok := indexToIssue[issueList.GetCurrentItem()]; ok {
+					issueID := issue.ID
+					log.Printf("BD COMMAND: Executing status update (S%c): bd update %s --status %s", event.Rune(), issueID, newStatus)
+					updatedIssue, err := execBdJSONIssue("update", issueID, "--status", string(newStatus))
+					if err != nil {
+						statusBar.SetText(errorMsg(fmt.Sprintf("Error updating status: %v", err)))
+					} else {
+						statusBar.SetText(successMsg(fmt.Sprintf("✓ Set %s to %s", updatedIssue.ID, updatedIssue.Status)))
+						scheduleRefresh(issueID)
+					}
+				}
+				lastKeyWasS = false
+				return nil
+			}
+
+			// Reset the pending 'g' (gg) prefix on any rune other than 'g'.
+			// Many rune handlers below return early, so relying on the outer
+			// default case to clear it left the flag sticky after j/k/0-4/etc.,
+			// causing a later single 'g' to be misread as 'gg'.
+			if event.Rune() != 'g' {
+				lastKeyWasG = false
+			}
+
+			// Normal single-key handling
+			switch event.Rune() {
+			case 'q':
+				saveCollapseState() // Persist before exit
+				app.Stop()
+				return nil
+			case 'r':
+				// Manual refresh - run in goroutine to avoid blocking UI
+				statusBar.SetText(fmt.Sprintf("[%s]Refreshing...[-]", formatting.GetEmphasisColor()))
+				go refreshIssues()
+				return nil
+			case 'j':
+				// Down - simulate down arrow
+				return tcell.NewEventKey(tcell.KeyDown, 0, tcell.ModNone)
+			case 'k':
+				// Up - simulate up arrow
+				return tcell.NewEventKey(tcell.KeyUp, 0, tcell.ModNone)
+			case 'g':
+				if lastKeyWasG {
+					// gg - jump to top
+					issueList.SetCurrentItem(0)
+					lastKeyWasG = false
+					return nil
+				}
+				lastKeyWasG = true
+				return nil
+			case 'G':
+				// G - jump to bottom
+				issueList.SetCurrentItem(issueList.GetItemCount() - 1)
+				lastKeyWasG = false
+				return nil
+			case '/':
+				// Start search mode
+				searchMode = true
+				searchQuery = ""
+				statusBar.SetText(fmt.Sprintf("[%s]Search:[-] _", formatting.GetEmphasisColor()))
+				return nil
+			case 'n':
+				// Next search result
+				nextSearchMatch()
+				return nil
+			case 'N':
+				// Previous search result
+				prevSearchMatch()
+				return nil
+			case 't':
+				// Toggle view mode
+				appState.ToggleViewMode()
+				issueList.SetTitle(getIssueListTitle())
+				statusBar.SetText(getStatusBarText())
+				populateIssueList()
+				return nil
+			case 'o':
+				// Toggle collapse for selected issue in tree view (vim-style fold)
+				if appState.GetViewMode() == state.ViewTree {
+					if issue, ok := indexToIssue[issueList.GetCurrentItem()]; ok {
+						if appState.HasChildren(issue.ID) {
+							isCollapsed := appState.ToggleCollapse(issue.ID)
+							saveCollapseState() // Persist to disk
+							populateIssueList()
+							// Restore selection after repopulating
+							for idx, iss := range indexToIssue {
+								if iss.ID == issue.ID {
+									issueList.SetCurrentItem(idx)
+									break
+								}
+							}
+							if isCollapsed {
+								showTemporaryStatus(successMsg(fmt.Sprintf("✓ Collapsed %s", issue.ID)), statusMessageDuration)
+							} else {
+								showTemporaryStatus(successMsg(fmt.Sprintf("✓ Expanded %s", issue.ID)), statusMessageDuration)
+							}
+						} else {
+							showTemporaryStatus(errorMsg("No children to collapse"), statusMessageDuration)
+						}
+					}
+				}
+				return nil
+			case 'O':
+				// Expand all nodes in tree view
+				if appState.GetViewMode() == state.ViewTree {
+					count := appState.ExpandAll()
+					saveCollapseState()
+					populateIssueList()
+					if count > 0 {
+						showTemporaryStatus(successMsg(fmt.Sprintf("✓ Expanded %d nodes", count)), statusMessageDuration)
+					} else {
+						showTemporaryStatus(successMsg("✓ All nodes already expanded"), statusMessageDuration)
+					}
+				}
+				return nil
+			case 'Z':
+				// Collapse all nodes in tree view
+				if appState.GetViewMode() == state.ViewTree {
+					count := appState.CollapseAll()
+					saveCollapseState()
+					populateIssueList()
+					if count > 0 {
+						showTemporaryStatus(successMsg(fmt.Sprintf("✓ Collapsed %d nodes", count)), statusMessageDuration)
+					} else {
+						showTemporaryStatus(successMsg("✓ All nodes already collapsed"), statusMessageDuration)
+					}
+				}
+				return nil
+			case 'v':
+				// Cycle the layout pin: auto -> Columns -> Rows -> Paged -> auto.
+				switch {
+				case !layoutPinned:
+					layoutPin = layout.Columns
+					layoutPinned = true
+				case layoutPin == layout.Paged:
+					layoutPinned = false
+				default:
+					layoutPin = layout.Next(layoutPin)
+				}
+
+				resolved := layout.Resolve(lastScreenWidth, layoutPin, layoutPinned)
+				if resolved != currentLayout {
+					currentLayout = resolved
+					remountLayout()
+					app.SetRoot(pages, true)
+					updatePanelFocus()
+				}
+
+				// A pin the width overrides would otherwise look like a dead key.
+				if layoutPinned && resolved != layoutPin {
+					showTemporaryStatus(
+						errorMsg(fmt.Sprintf("Pinned %s, but %d cols is too narrow - showing %s",
+							layoutPin, lastScreenWidth, resolved)),
+						statusMessageDuration)
+				} else {
+					statusBar.SetText(getStatusBarText())
+				}
+				return nil
+			case 'C':
+				// Toggle showing closed issues
+				showClosedIssues = !showClosedIssues
+				statusBar.SetText(getStatusBarText())
+				populateIssueList()
+				return nil
+			case 'm':
+				// Toggle mouse mode
+				mouseEnabled = !mouseEnabled
+				app.EnableMouse(mouseEnabled)
+				statusBar.SetText(getStatusBarText())
+				return nil
+			case 'p':
+				// Toggle issue ID prefix display
+				showPrefix = !showPrefix
+				populateIssueList()
+				if showPrefix {
+					showTemporaryStatus(successMsg("Prefix: shown"), statusMessageDuration)
+				} else {
+					showTemporaryStatus(successMsg("Prefix: hidden"), statusMessageDuration)
+				}
+				return nil
+			case 'a':
+				// Open issue creation dialog
+				showCreateIssueDialog()
+				return nil
+			case 'e':
+				// Edit issue fields
+				showEditForm()
+				return nil
+			case 'D':
+				// Open dependency management dialog
+				showDependencyDialog()
+				return nil
+			case 'L':
+				// Open label management dialog
+				showLabelDialog()
+				return nil
+			case 'y':
+				// Yank (copy) issue ID to clipboard
+				if issue, ok := indexToIssue[issueList.GetCurrentItem()]; ok {
+					copyToClipboard(issue.ID, fmt.Sprintf("%s to clipboard", issue.ID))
+				}
+				return nil
+			case 'Y':
+				// Yank (copy) issue ID with title to clipboard
+				if issue, ok := indexToIssue[issueList.GetCurrentItem()]; ok {
+					text := fmt.Sprintf("%s - %s", issue.ID, issue.Title)
+					copyToClipboard(text, fmt.Sprintf("'%s' to clipboard", text))
+				}
+				return nil
+			case 'B':
+				// Copy git branch name to clipboard
+				if issue, ok := indexToIssue[issueList.GetCurrentItem()]; ok {
+					branchName := issue.ID // Simple format: just the issue ID
+					copyToClipboard(branchName,
+						fmt.Sprintf("branch name '%s' to clipboard", branchName))
+				}
+				return nil
+			case 'R':
+				// Rename issue (edit title)
+				showRenameDialog()
+				return nil
+			case 'x':
+				// Close issue with optional reason
+				showCloseIssueDialog()
+				return nil
+			case 'X':
+				// Reopen closed issue with optional reason
+				showReopenIssueDialog()
+				return nil
+			case '?':
+				// Show help screen
+				showHelpScreen()
+				return nil
+			case 'f':
+				// Show quick filter
+				showQuickFilter()
+				return nil
+			case 'S':
+				// Show stats dashboard
+				showStatsOverlay()
+				return nil
+			case '0', '1', '2', '3', '4':
+				// Quick priority change
+				if issue, ok := indexToIssue[issueList.GetCurrentItem()]; ok {
+					priority := int(event.Rune() - '0')
+					issueID := issue.ID // Capture issue ID before refresh
+					// Update priority via bd command with --json
+					log.Printf("BD COMMAND: Executing priority update: bd update %s --priority %d", issueID, priority)
+					updatedIssue, err := execBdJSONIssue("update", issueID, "--priority", fmt.Sprintf("%d", priority))
+					if err != nil {
+						log.Printf("BD COMMAND ERROR: Priority update failed: %v", err)
+						statusBar.SetText(errorMsg(fmt.Sprintf("Error updating priority: %v", err)))
+					} else {
+						log.Printf("BD COMMAND: Priority update successful for %s -> P%d", updatedIssue.ID, updatedIssue.Priority)
+						statusBar.SetText(successMsg(fmt.Sprintf("✓ Set %s to P%d", updatedIssue.ID, updatedIssue.Priority)))
+						// Refresh issues after a short delay, preserving selection
+						log.Printf("BD COMMAND: Scheduling refresh in 500ms")
+						scheduleRefresh(issueID)
+					}
+				}
+				return nil
+			case 's':
+				// Initiate status shortcut sequence
+				lastKeyWasS = true
+				statusBar.SetText(fmt.Sprintf("[%s]Status shortcut: o/i/b/c[-]", formatting.GetEmphasisColor()))
+				// Reset after 2 seconds if no second key
+				time.AfterFunc(statusMessageDuration, func() {
+					safeQueueUpdateDraw(func() {
+						if lastKeyWasS {
+							lastKeyWasS = false
+							statusBar.SetText(getStatusBarText())
+						}
+					})
+				})
+				return nil
+			case 'c':
+				// Add comment to issue
+				showCommentDialog()
+				return nil
+			default:
+				// Reset all multi-key flags if any other key is pressed
+				lastKeyWasG = false
+				lastKeyWasS = false
+			}
+		default:
+			lastKeyWasG = false
+		}
+		return event
+	})
+
+	// Enable mouse by default (can be toggled with 'm' key)
+	app.EnableMouse(mouseEnabled)
+
+	// Set root and ensure issue list has focus initially
+	app.SetRoot(pages, true)
+	app.SetFocus(issueList)
+
+	return t, nil
+}
+
+// Run starts the tview event loop and blocks until the application stops.
+func (t *tui) Run() error {
+	log.Printf("APP: Starting tview application main loop")
+	if err := t.app.Run(); err != nil {
+		log.Printf("APP ERROR: Application crashed: %v", err)
+		return err
+	}
+	log.Printf("APP: Application exited normally")
+	return nil
+}
+
+// Shutdown persists collapse state and stops the event loop. It is safe to
+// call from a signal handler.
+func (t *tui) Shutdown() {
+	t.saveCollapseState()
+	t.app.Stop()
+}
+
+// Close releases the file watcher and the JSONL reader. It is idempotent.
+func (t *tui) Close() {
+	t.closeOnce.Do(func() {
+		if t.fileWatcher != nil {
+			log.Printf("WATCHER: Stopping file watcher")
+			_ = t.fileWatcher.Stop()
+		}
+		if t.reader != nil {
+			_ = t.reader.Close()
+		}
+	})
+}
