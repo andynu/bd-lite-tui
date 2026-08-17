@@ -273,22 +273,3 @@ func renderTreeNode(
 		}
 	}
 }
-
-// UpdatePanelFocus updates the visual indicators for which panel is focused
-func UpdatePanelFocus(
-	issueList *tview.List,
-	detailPanel *tview.TextView,
-	detailPanelFocused bool,
-) {
-	if detailPanelFocused {
-		issueList.SetBorderColor(tview.Styles.PrimaryTextColor)
-		issueList.SetTitle("Issues")
-		detailPanel.SetBorderColor(tview.Styles.SecondaryTextColor) // Yellow
-		detailPanel.SetTitle("Details [ESC to return]")
-	} else {
-		issueList.SetBorderColor(tview.Styles.SecondaryTextColor) // Yellow
-		issueList.SetTitle("Issues [Navigate]")
-		detailPanel.SetBorderColor(tview.Styles.PrimaryTextColor)
-		detailPanel.SetTitle("Details")
-	}
-}

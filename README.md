@@ -225,7 +225,6 @@ bd-lite-tui/
 │   │   └── dialog_*.go      # One file per modal (create, edit, close, ...)
 │   └── list-themes/     # Prints the registered themes
 ├── internal/
-│   ├── app/             # .beads discovery and app context
 │   ├── clipboard/       # xclip/pbcopy/clip wrapper
 │   ├── config/          # ~/.bd-tui/config.json and per-repo collapse state
 │   ├── formatting/      # Color schemes, status formatting, detail rendering
@@ -233,9 +232,9 @@ bd-lite-tui/
 │   ├── layout/          # Columns/Rows/Paged decision from terminal width
 │   ├── parser/          # JSONL parser for bd-lite issues
 │   ├── state/           # Issue categorization, filtering, tree building
-│   ├── storage/         # JSONL file reader (primary data source)
+│   ├── storage/         # .beads discovery and the JSONL file reader
 │   ├── theme/           # Built-in and TOML themes
-│   ├── ui/              # UI components and rendering helpers
+│   ├── ui/              # Issue list and tree rendering
 │   └── watcher/         # Filesystem monitoring with debouncing
 └── go.mod
 ```
@@ -422,9 +421,6 @@ bd comment tui-xyz "Your comment text"
 - `bd_helpers.go`: `execBd`/`execBdJSON`, the only place that shells out to `bd`
 - `dialogs.go` + `dialog_*.go`: the modal dialogs, one file each
 
-**`internal/app/`** - Application context
-- `.beads` discovery and application-wide state
-
 **`internal/clipboard/`** - Clipboard access
 - Shells out to xclip/xsel/wl-copy, keeping the helper's stderr
 - `osc52.go` writes the terminal's own clipboard escape sequence for sessions
@@ -461,16 +457,15 @@ bd comment tui-xyz "Your comment text"
 - Tree view structure building
 
 **`internal/storage/`** - Data access
-- JSONL file reading (primary data source)
-- Reads and parses `.beads/issues.jsonl`
+- `FindBeadsDir` walks up from the working directory to locate `.beads`
+- `JSONLReader` reads and parses `.beads/issues.jsonl`
 
 **`internal/theme/`** - Colors
 - Built-in themes and TOML theme files, selected by `--theme`, `$BEADS_THEME`,
   or `~/.bd-tui/config.json`. There is no theme-cycling key.
 
 **`internal/ui/`** - UI helpers
-- Component builders
-- List and tree rendering
+- `PopulateIssueList` rebuilds the issue list; `renderTreeNode` draws tree view
 
 **`internal/watcher/`** - File monitoring
 - fsnotify wrapper with 200ms debouncing

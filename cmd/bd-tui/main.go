@@ -13,8 +13,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/andynu/bd-lite-tui/internal/app"
 	"github.com/andynu/bd-lite-tui/internal/config"
+	"github.com/andynu/bd-lite-tui/internal/storage"
 	"github.com/andynu/bd-lite-tui/internal/theme"
 	_ "github.com/andynu/bd-lite-tui/internal/theme" // Import to register themes
 )
@@ -88,7 +88,7 @@ func main() {
 
 	log.Printf("Finding .beads directory")
 	// Find .beads directory
-	beadsDir, err := app.FindBeadsDir()
+	beadsDir, err := storage.FindBeadsDir()
 	if err != nil {
 		log.Printf("ERROR: Failed to find .beads directory: %v", err)
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -149,10 +149,5 @@ func main() {
 	}
 }
 
-// Helper functions have been moved to internal packages:
-// - formatting: color, status, details formatting
-// - app: initialization and context management
-// - ui: component creation and rendering
-//
 // The TUI itself (widgets, key bindings, refresh plumbing) lives in tui.go so
 // it can be constructed against a tcell SimulationScreen from tests.

@@ -171,7 +171,6 @@ bd-lite-tui/
 │   │   └── dialog_*.go      # One file per modal (create, edit, close, ...)
 │   └── list-themes/     # Prints the registered themes
 ├── internal/
-│   ├── app/             # .beads discovery and app context
 │   ├── clipboard/       # xclip/xsel/wl-copy wrapper, plus an OSC 52 route
 │   ├── config/          # ~/.bd-tui/config.json and per-repo collapse state
 │   ├── formatting/      # Colors, status glyphs, detail-panel rendering
@@ -181,9 +180,9 @@ bd-lite-tui/
 │   │   ├── types.go     # Issue, Dependency, Comment types
 │   │   └── parser.go    # Line-by-line JSONL reader
 │   ├── state/           # Issue categorization, filtering, tree building
-│   ├── storage/         # JSONLReader for issues.jsonl
+│   ├── storage/         # .beads discovery and the JSONLReader for issues.jsonl
 │   ├── theme/           # Built-in and TOML themes
-│   ├── ui/              # Component builders and list/tree rendering
+│   ├── ui/              # Issue list and tree rendering
 │   └── watcher/         # fsnotify wrapper with debouncing
 └── go.mod
 ```
