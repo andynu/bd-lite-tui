@@ -28,6 +28,16 @@ go test -coverprofile=coverage.out ./...
 go tool cover -html=coverage.out
 ```
 
+### Formatting
+
+CI fails the `lint` job when any Go file needs gofmt, so run this before
+committing:
+
+```bash
+make fmt-check   # lists drifted files and exits non-zero
+make fmt         # rewrites them in place
+```
+
 ### Working with bd-lite Issues
 
 ```bash
