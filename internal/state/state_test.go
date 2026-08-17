@@ -13,13 +13,13 @@ func TestStateLoadIssues(t *testing.T) {
 
 	issues := []*parser.Issue{
 		{
-			ID:          "test-1",
-			Title:       "Ready Issue",
-			Status:      parser.StatusOpen,
-			Priority:    1,
-			IssueType:   parser.TypeTask,
-			CreatedAt:   time.Now(),
-			UpdatedAt:   time.Now(),
+			ID:           "test-1",
+			Title:        "Ready Issue",
+			Status:       parser.StatusOpen,
+			Priority:     1,
+			IssueType:    parser.TypeTask,
+			CreatedAt:    time.Now(),
+			UpdatedAt:    time.Now(),
 			Dependencies: nil,
 		},
 		{

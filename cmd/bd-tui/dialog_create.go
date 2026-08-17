@@ -124,10 +124,10 @@ func (h *DialogHelpers) ShowCreateIssueDialog() {
 	form.SetButtonTextColor(currentTheme.SelectionFg())
 
 	var title, description, priority, issueType string
-	priority = "2" // Default to P2
-	issueType = "feature" // Default to feature
+	priority = "2"                 // Default to P2
+	issueType = "feature"          // Default to feature
 	priorityExplicitlySet := false // Track if user manually changed priority
-	typeExplicitlySet := false // Track if user manually changed type
+	typeExplicitlySet := false     // Track if user manually changed type
 
 	// Get current issue for potential parent
 	var currentIssueID string

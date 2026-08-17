@@ -16,11 +16,11 @@ func (h *DialogHelpers) ShowStatsOverlay() {
 
 	// Calculate statistics
 	stats := struct {
-		total        int
-		byStatus     map[parser.Status]int
-		byPriority   map[int]int
-		byType       map[parser.IssueType]int
-		totalDeps    int
+		total           int
+		byStatus        map[parser.Status]int
+		byPriority      map[int]int
+		byType          map[parser.IssueType]int
+		totalDeps       int
 		avgDepsPerIssue float64
 	}{
 		byStatus:   make(map[parser.Status]int),

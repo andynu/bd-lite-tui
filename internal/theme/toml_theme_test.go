@@ -93,13 +93,13 @@ func TestParseHexColor(t *testing.T) {
 		input    string
 		expected int32
 	}{
-		{"#FF0000", 0xFF0000},  // red
-		{"#00FF00", 0x00FF00},  // green
-		{"#0000FF", 0x0000FF},  // blue
-		{"#282828", 0x282828},  // gruvbox bg
-		{"#FFFFFF", 0xFFFFFF},  // white
-		{"#000000", 0x000000},  // black
-		{"FF0000", 0xFF0000},   // without # prefix
+		{"#FF0000", 0xFF0000}, // red
+		{"#00FF00", 0x00FF00}, // green
+		{"#0000FF", 0x0000FF}, // blue
+		{"#282828", 0x282828}, // gruvbox bg
+		{"#FFFFFF", 0xFFFFFF}, // white
+		{"#000000", 0x000000}, // black
+		{"FF0000", 0xFF0000},  // without # prefix
 	}
 
 	for _, tt := range tests {

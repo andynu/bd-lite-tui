@@ -14,9 +14,9 @@ import (
 
 // BdCommandResult represents the result of executing a bd command with --json
 type BdCommandResult struct {
-	Issues   []parser.Issue  `json:"issues,omitempty"`
+	Issues   []parser.Issue   `json:"issues,omitempty"`
 	Comments []parser.Comment `json:"comments,omitempty"`
-	Error    string          `json:"error,omitempty"`
+	Error    string           `json:"error,omitempty"`
 }
 
 // execBdJSON runs a bd command and parses its JSON response. It is a variable
@@ -29,11 +29,12 @@ var execBdJSON = execBdJSONCmd
 // It handles both single object and array responses from bd commands.
 //
 // Example usage:
-//   result, err := execBdJSON("update", "tui-123", "--priority", "1")
-//   if err != nil { ... }
-//   if len(result.Issues) > 0 {
-//     updatedIssue := result.Issues[0]
-//   }
+//
+//	result, err := execBdJSON("update", "tui-123", "--priority", "1")
+//	if err != nil { ... }
+//	if len(result.Issues) > 0 {
+//	  updatedIssue := result.Issues[0]
+//	}
 func execBdJSONCmd(args ...string) (*BdCommandResult, error) {
 	// Add --json flag if not already present
 	hasJSON := false

@@ -68,12 +68,12 @@ type tomlThemeConfig struct {
 	} `toml:"ui"`
 
 	Component struct {
-		SelectionBg         string `toml:"selection_bg"`
-		SelectionFg         string `toml:"selection_fg"`
-		BorderNormal        string `toml:"border_normal"`
-		BorderFocused       string `toml:"border_focused"`
-		AppBackground       string `toml:"app_background"`
-		AppForeground       string `toml:"app_foreground"`
+		SelectionBg          string `toml:"selection_bg"`
+		SelectionFg          string `toml:"selection_fg"`
+		BorderNormal         string `toml:"border_normal"`
+		BorderFocused        string `toml:"border_focused"`
+		AppBackground        string `toml:"app_background"`
+		AppForeground        string `toml:"app_foreground"`
 		InputFieldBackground string `toml:"input_field_background"`
 	} `toml:"component"`
 }

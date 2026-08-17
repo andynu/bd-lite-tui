@@ -628,10 +628,10 @@ func (s *State) buildDependencyTree() {
 	s.treeNodes = nil
 
 	// Build maps for parent-child and blocks relationships
-	childrenMap := make(map[string][]*parser.Issue)       // parent ID -> children
-	blockedByMap := make(map[string][]*parser.Issue)      // blocker ID -> blocked issues
-	hasIncomingDep := make(map[string]bool)               // issues that have parents or blockers
-	idPrefixChildren := make(map[string][]*parser.Issue)  // parent ID -> children by ID prefix (e.g., "epic-1" -> ["epic-1.1", "epic-1.2"])
+	childrenMap := make(map[string][]*parser.Issue)      // parent ID -> children
+	blockedByMap := make(map[string][]*parser.Issue)     // blocker ID -> blocked issues
+	hasIncomingDep := make(map[string]bool)              // issues that have parents or blockers
+	idPrefixChildren := make(map[string][]*parser.Issue) // parent ID -> children by ID prefix (e.g., "epic-1" -> ["epic-1.1", "epic-1.2"])
 
 	// Build set of open issue IDs for O(1) parent lookup
 	openIssueIDs := make(map[string]*parser.Issue, len(s.issues))
