@@ -600,6 +600,19 @@ bd create "Test issue" -p 2
 bd init            # or: bd init --prefix myproj
 ```
 
+### issues.jsonl not found
+
+**Cause:** `.beads` exists but holds no store file, so `FindBeadsDir` succeeds
+and the `os.Stat` in `main.go` fails.
+
+**Fix:** not `bd init` — it errors with ".beads directory already exists"
+whenever the directory is present, `--prefix` or not, and never repairs a
+partial store.
+```bash
+bd create "First issue"      # writes .beads/issues.jsonl
+touch .beads/issues.jsonl    # ...or open an empty board
+```
+
 ### TUI not updating after bd commands
 
 **Cause:** File watcher not detecting changes.

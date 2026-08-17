@@ -106,8 +106,7 @@ func main() {
 
 	// Check if JSONL file exists
 	if _, err := os.Stat(jsonlPath); os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "Error: %s not found\n", jsonlPath)
-		fmt.Fprintf(os.Stderr, "Run: bd export -o .beads/issues.jsonl\n")
+		fmt.Fprint(os.Stderr, missingStoreMessage(jsonlPath))
 		os.Exit(1)
 	}
 
@@ -147,6 +146,25 @@ func main() {
 	if err := tuiApp.Run(); err != nil {
 		panic(err)
 	}
+}
+
+// missingStoreMessage is what the user sees when .beads was found but holds no
+// issues.jsonl.
+//
+// `bd init` is not the advice here, however much it sounds like it should be.
+// FindBeadsDir only returns once .beads exists as a directory, and bd-lite's
+// init refuses that case outright ("Error: .beads directory already exists"),
+// with or without --prefix. It never repairs a partial store. `bd create` does
+// create the file, in a bare .beads and next to an existing config.yaml alike,
+// and touching the path works when the user wants to open an empty board.
+func missingStoreMessage(jsonlPath string) string {
+	return fmt.Sprintf(
+		"Error: %s not found\n"+
+			"The .beads directory has no issue store, and bd init will not add one: it refuses to run when .beads already exists.\n"+
+			"Create the store with: bd create \"First issue\"\n"+
+			"Or start it empty with: touch %s\n",
+		jsonlPath, jsonlPath,
+	)
 }
 
 // The TUI itself (widgets, key bindings, refresh plumbing) lives in tui.go so
