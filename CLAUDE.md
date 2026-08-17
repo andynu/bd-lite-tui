@@ -234,7 +234,7 @@ pinned mode is marked with `*` in the status bar.
 **Panel focus system:** The TUI has two focusable panels (issue list and detail panel):
 - **Default:** Issue list is focused (for navigation)
 - **Tab or Enter:** Focus detail panel to enable keyboard scrolling
-- **ESC:** Return focus to issue list
+- **ESC or Left arrow:** Return focus to issue list
 - **Visual indicators:** Focused panel has yellow border and updated title text
 - **Status bar:** Shows current focus (List or Details)
 - In Paged mode focus also decides which panel is mounted, so Tab/Enter is how
@@ -525,7 +525,8 @@ then detail-panel-focused mode, then normal mode.
 - `Enter`: Focus detail panel (when on an issue)
 
 **Detail Panel Mode (when focused):**
-- `Tab` or `ESC`: Return focus to issue list
+- `Tab`, `ESC`, or `Left`: Return focus to issue list (in Paged mode this turns
+  the page back to the list)
 - `Ctrl-d`: Scroll down half page (vim style)
 - `Ctrl-u`: Scroll up half page (vim style)
 - `Ctrl-f`: Scroll down full page (vim style)

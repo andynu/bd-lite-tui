@@ -90,7 +90,7 @@ Debug logs include keyboard events, refresh operations, bd command executions, a
 - `Ctrl-f` / `Ctrl-b` - Page down / up in the list (vim)
 - `Tab` - Focus detail panel for scrolling
 - `Enter` - Focus detail panel (when on issue)
-- `ESC` - Return focus to issue list
+- `ESC` / `←` - Return focus to issue list
 
 ### Search
 - `/` - Start search mode
@@ -154,6 +154,7 @@ filter are disabled rather than guessing at a name.
 Fold state persists per repository in `~/.bd-tui/collapse-<hash>.json`.
 
 ### Detail Panel Scrolling (when focused)
+- `Tab` / `ESC` / `←` - Return focus to issue list
 - `Ctrl-d` - Scroll down half page
 - `Ctrl-u` - Scroll up half page
 - `Ctrl-f` - Scroll down full page (vim)

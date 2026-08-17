@@ -29,7 +29,7 @@ func (h *DialogHelpers) ShowHelpScreen() {
   Ctrl-b      Page up
   Tab         Focus detail panel for scrolling
   Enter       Focus detail panel (when on issue)
-  ESC         Return focus to issue list
+  ESC / ←     Return focus to issue list
   ESC ESC     Quit (twice within a second, from the list)
 
 [cyan::b]Search[-::-]

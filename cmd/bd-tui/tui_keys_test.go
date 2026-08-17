@@ -220,6 +220,39 @@ func TestFocus_TabIntoDetailAndEscapeBack(t *testing.T) {
 	}
 }
 
+// Left arrow is the "go back" gesture out of the detail panel, same as ESC.
+// The paged case is the one that matters: below layout.NarrowThreshold only
+// one panel is mounted, so the list is off screen entirely until focus returns.
+func TestFocus_LeftArrowReturnsToList(t *testing.T) {
+	for _, width := range []int{120, 80} {
+		t.Run(fmt.Sprintf("%dcols", width), func(t *testing.T) {
+			h := newHarness(t, basicIssues(), withScreenSize(width, 24))
+			h.typeRunes("j")
+
+			h.key(tcell.KeyTab)
+			if status := h.statusText(); !strings.Contains(status, "Focus: Details") {
+				t.Fatalf("Tab did not move focus into the detail panel: %q", status)
+			}
+
+			h.key(tcell.KeyLeft)
+			if status := h.statusText(); !strings.Contains(status, "Focus: List") {
+				t.Fatalf("Left did not return focus to the list: %q", status)
+			}
+			if !strings.Contains(h.screenText(), "READY (3)") {
+				t.Fatalf("the issue list is not the mounted page after Left:\n%s", h.screenText())
+			}
+
+			// Focus really is on the list, not merely reported there: j moves the
+			// selection instead of being swallowed by the detail panel.
+			before := h.currentIssueID()
+			h.typeRunes("j")
+			if after := h.currentIssueID(); after == before {
+				t.Fatalf("j did not move the list selection after Left (still %q)", after)
+			}
+		})
+	}
+}
+
 // The focus indicator reaches the screen on a narrow terminal. It used to sit
 // behind the absolute .beads path, which filled the line on its own and left
 // everything after "(N issues)" clipped at the right edge (tui-7j4u).

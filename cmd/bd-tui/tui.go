@@ -981,8 +981,10 @@ func newTUI(opts tuiOptions) (*tui, error) {
 				detailPanelFocused = false
 				updatePanelFocus()
 				return nil
-			case tcell.KeyEscape:
-				// Return focus to issue list (keep detail pane visible)
+			case tcell.KeyEscape, tcell.KeyLeft:
+				// Return focus to issue list (keep detail pane visible).
+				// Left arrow is the "go back" gesture, which matters most in
+				// Paged mode where updatePanelFocus remounts the list page.
 				detailPanelFocused = false
 				updatePanelFocus()
 				return nil
