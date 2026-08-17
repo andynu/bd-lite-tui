@@ -153,8 +153,10 @@ filter are disabled rather than guessing at a name.
 
 Fold state persists per repository in `~/.bd-tui/collapse-<hash>.json`.
 
-### Detail Panel Scrolling (when focused)
+### Detail Panel (when focused)
 - `Tab` / `ESC` / `←` - Return focus to issue list
+- `j` / `↓` - Show the next issue, skipping group headers (stops at the end)
+- `k` / `↑` - Show the previous issue
 - `Ctrl-d` - Scroll down half page
 - `Ctrl-u` - Scroll up half page
 - `Ctrl-f` - Scroll down full page (vim)

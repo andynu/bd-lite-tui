@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/andynu/bd-lite-tui/internal/layout"
+	"github.com/andynu/bd-lite-tui/internal/parser"
 	"github.com/gdamore/tcell/v2"
 )
 
@@ -250,6 +251,132 @@ func TestFocus_LeftArrowReturnsToList(t *testing.T) {
 				t.Fatalf("j did not move the list selection after Left (still %q)", after)
 			}
 		})
+	}
+}
+
+// With the detail panel focused, Up/Down browse the issue set instead of
+// scrolling the text a line at a time, and focus stays on the detail.
+func TestDetailFocus_ArrowsBrowseIssues(t *testing.T) {
+	h := newHarness(t, basicIssues())
+	h.selectIssue("tui-aaa")
+	h.key(tcell.KeyTab)
+
+	h.key(tcell.KeyDown)
+	if got, want := h.currentIndex(), 2; got != want {
+		t.Fatalf("after Down: index %d, want %d", got, want)
+	}
+	if got := h.currentIssueID(); got != "tui-bbb" {
+		t.Fatalf("after Down: selected %q, want tui-bbb", got)
+	}
+	// The ID line is unique to the detail panel, so this asserts what the panel
+	// rendered rather than what the list row happens to say.
+	if line := rowContaining(t, h, "click to copy"); !strings.Contains(line, "tui-bbb") {
+		t.Errorf("the detail panel did not repaint for tui-bbb: %q", line)
+	}
+	if status := h.statusText(); !strings.Contains(status, "Focus: Details") {
+		t.Fatalf("Down moved focus out of the detail panel: %q", status)
+	}
+
+	h.key(tcell.KeyUp)
+	if got := h.currentIssueID(); got != "tui-aaa" {
+		t.Fatalf("after Up: selected %q, want tui-aaa", got)
+	}
+	if line := rowContaining(t, h, "click to copy"); !strings.Contains(line, "tui-aaa") {
+		t.Errorf("the detail panel did not repaint for tui-aaa: %q", line)
+	}
+}
+
+// j/k mirror the arrows while the detail is focused. They used to reach tview's
+// TextView handler, which scrolls a line; Ctrl-e/Ctrl-y still do that.
+func TestDetailFocus_JAndKBrowseIssues(t *testing.T) {
+	h := newHarness(t, basicIssues())
+	h.selectIssue("tui-aaa")
+	h.key(tcell.KeyTab)
+
+	h.typeRunes("j")
+	if got := h.currentIssueID(); got != "tui-bbb" {
+		t.Fatalf("after j: selected %q, want tui-bbb", got)
+	}
+	h.typeRunes("k")
+	if got := h.currentIssueID(); got != "tui-aaa" {
+		t.Fatalf("after k: selected %q, want tui-aaa", got)
+	}
+	if status := h.statusText(); !strings.Contains(status, "Focus: Details") {
+		t.Fatalf("j/k moved focus out of the detail panel: %q", status)
+	}
+}
+
+// Browsing steps over the group headers: landing on one would leave the detail
+// panel showing the issue the cursor just left.
+func TestDetailFocus_ArrowsSkipGroupHeaders(t *testing.T) {
+	issues := basicIssues()
+	issues[2] = newIssue("tui-ccc", "Charlie issue", withStatus(parser.StatusInProgress))
+	h := newHarness(t, issues)
+
+	// Rows are: IN PROGRESS header, tui-ccc, READY header, tui-aaa, tui-bbb.
+	h.selectIssue("tui-ccc")
+	h.key(tcell.KeyTab)
+
+	h.key(tcell.KeyDown)
+	if got := h.currentIssueID(); got != "tui-aaa" {
+		t.Fatalf("Down stopped on the READY header instead of tui-aaa (selected %q at index %d)", got, h.currentIndex())
+	}
+	if line := rowContaining(t, h, "click to copy"); !strings.Contains(line, "tui-aaa") {
+		t.Errorf("the detail panel did not repaint for tui-aaa: %q", line)
+	}
+
+	h.key(tcell.KeyUp)
+	if got := h.currentIssueID(); got != "tui-ccc" {
+		t.Fatalf("Up stopped on the READY header instead of tui-ccc (selected %q at index %d)", got, h.currentIndex())
+	}
+}
+
+// The ends of the list stop rather than wrap.
+func TestDetailFocus_ArrowsStopAtTheEnds(t *testing.T) {
+	h := newHarness(t, basicIssues())
+
+	h.selectIssue("tui-ccc") // last issue row
+	h.key(tcell.KeyTab)
+	before := h.currentIndex()
+	h.key(tcell.KeyDown)
+	if got := h.currentIndex(); got != before {
+		t.Fatalf("Down past the last issue moved the selection: index %d, want %d", got, before)
+	}
+
+	h.key(tcell.KeyEscape)
+	h.selectIssue("tui-aaa") // first issue row, with only a header above it
+	h.key(tcell.KeyTab)
+	before = h.currentIndex()
+	h.key(tcell.KeyUp)
+	if got := h.currentIndex(); got != before {
+		t.Fatalf("Up past the first issue moved the selection: index %d, want %d", got, before)
+	}
+	if got := h.currentIssueID(); got != "tui-aaa" {
+		t.Fatalf("Up landed on the group header: selected %q", got)
+	}
+}
+
+// The paged layout is the case this binding is for: the list is not mounted, so
+// the detail panel is the only thing on screen and browsing has to repaint it.
+func TestDetailFocus_ArrowsBrowseInPagedLayout(t *testing.T) {
+	h := newHarness(t, basicIssues(), withScreenSize(80, 24))
+	h.selectIssue("tui-aaa")
+	h.key(tcell.KeyTab)
+
+	if text := h.screenText(); strings.Contains(text, "READY (3)") {
+		t.Fatalf("test setup: the list is still mounted at 80 columns:\n%s", text)
+	}
+
+	h.key(tcell.KeyDown)
+	if got := h.currentIssueID(); got != "tui-bbb" {
+		t.Fatalf("after Down: selected %q, want tui-bbb", got)
+	}
+	text := h.screenText()
+	if !strings.Contains(text, "Bravo issue") {
+		t.Errorf("the mounted detail page did not repaint for tui-bbb:\n%s", text)
+	}
+	if strings.Contains(text, "Alpha issue") {
+		t.Errorf("the detail page still shows the previous issue:\n%s", text)
 	}
 }
 

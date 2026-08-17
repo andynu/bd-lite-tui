@@ -668,6 +668,29 @@ func newTUI(opts tuiOptions) (*tui, error) {
 		issueList.SetTitle(getIssueListTitle())
 	})
 
+	// selectAdjacentIssue moves the selection to the next issue row in the
+	// direction of delta (+1 down, -1 up), stepping over the group headers that
+	// would otherwise leave the detail panel showing the previous issue. The
+	// SetCurrentItem call fires the changed handler above, which repaints the
+	// detail, so this works whether or not the list is the mounted panel — which
+	// is what makes it usable from the detail panel in Paged mode.
+	//
+	// It stops at the ends rather than wrapping: with the list off screen there
+	// is nothing to show that the cursor jumped back to the other end.
+	selectAdjacentIssue := func(delta int) bool {
+		if delta == 0 {
+			return false
+		}
+		count := issueList.GetItemCount()
+		for idx := issueList.GetCurrentItem() + delta; idx >= 0 && idx < count; idx += delta {
+			if _, ok := indexToIssue[idx]; ok {
+				issueList.SetCurrentItem(idx)
+				return true
+			}
+		}
+		return false
+	}
+
 	// Layout builder function
 	buildLayout := func() *tview.Flex {
 		var contentFlex *tview.Flex
@@ -988,6 +1011,25 @@ func newTUI(opts tuiOptions) (*tui, error) {
 				detailPanelFocused = false
 				updatePanelFocus()
 				return nil
+			case tcell.KeyDown:
+				// Browse to the next issue instead of scrolling the text down a
+				// line, which makes the detail panel a pager over the issue set.
+				// Ctrl-e/Ctrl-y still move a single line.
+				selectAdjacentIssue(1)
+				return nil
+			case tcell.KeyUp:
+				selectAdjacentIssue(-1)
+				return nil
+			case tcell.KeyRune:
+				// j/k mirror the arrows here, the way they do in the list.
+				switch event.Rune() {
+				case 'j':
+					selectAdjacentIssue(1)
+					return nil
+				case 'k':
+					selectAdjacentIssue(-1)
+					return nil
+				}
 			case tcell.KeyCtrlD:
 				// Scroll down half page
 				_, _, _, height := detailPanel.GetInnerRect()

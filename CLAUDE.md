@@ -527,6 +527,10 @@ then detail-panel-focused mode, then normal mode.
 **Detail Panel Mode (when focused):**
 - `Tab`, `ESC`, or `Left`: Return focus to issue list (in Paged mode this turns
   the page back to the list)
+- `j` / `Down`, `k` / `Up`: Move the list selection to the next/previous issue
+  and repaint the detail for it, keeping focus here. Group headers are skipped
+  and the ends stop rather than wrap, which makes the detail a pager over the
+  issue set in Paged mode. Line scrolling is on `Ctrl-e`/`Ctrl-y`.
 - `Ctrl-d`: Scroll down half page (vim style)
 - `Ctrl-u`: Scroll up half page (vim style)
 - `Ctrl-f`: Scroll down full page (vim style)

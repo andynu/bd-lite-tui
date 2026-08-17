@@ -99,7 +99,9 @@ func (h *DialogHelpers) ShowHelpScreen() {
   m           Toggle mouse mode on/off
   r           Manual refresh
 
-[cyan::b]Detail Panel Scrolling (when focused)[-::-]
+[cyan::b]Detail Panel (when focused)[-::-]
+  j / ↓       Show the next issue (headers skipped)
+  k / ↑       Show the previous issue
   Ctrl-d      Scroll down half page
   Ctrl-u      Scroll up half page
   Ctrl-f      Scroll down full page (vim)
