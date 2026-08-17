@@ -252,8 +252,10 @@ in tests. Search `tui.go`, not `main.go`, for behavior.
 - [toml](https://github.com/BurntSushi/toml) - Parsing TOML theme files
 - [term](https://pkg.go.dev/golang.org/x/term) - Terminal size and capability queries
 
-Clipboard access is `internal/clipboard`, which shells out to xclip/pbcopy/clip
-rather than taking a dependency.
+Clipboard access is `internal/clipboard`, which shells out to xclip/xsel/wl-copy
+rather than taking a dependency, and can write an OSC 52 escape sequence instead
+when there is no local display to reach. See
+[Clipboard over SSH](#clipboard-over-ssh).
 
 ## Troubleshooting
 
@@ -292,6 +294,44 @@ Ensure you're in a directory with a `.beads` folder:
 bd init                      # Initialize bd-lite if needed
 bd init --prefix myproj      # ...with an explicit issue ID prefix
 ```
+
+### Clipboard over SSH
+
+`y`, `Y` and `B` write to the clipboard of the machine running bd-tui, using
+xclip, xsel or wl-copy. Over SSH that is usually the wrong machine, and on a
+remote host with a display of its own the copy will succeed while putting the
+text on a clipboard nobody can see.
+
+`BD_TUI_CLIPBOARD` picks the route:
+
+| Value | Behavior |
+|-------|----------|
+| `auto` (default) | Local display helper, falling back to OSC 52 when the host has no display |
+| `helper` | Local display helper only |
+| `osc52` | The terminal's own clipboard sequence only, even when a local display exists |
+
+OSC 52 asks the terminal emulator to set the clipboard of the machine you are
+sitting at. Set `BD_TUI_CLIPBOARD=osc52` when you SSH into a host that has its
+own display, since auto mode would otherwise never reach for it.
+
+Nothing acknowledges an OSC 52 write. The terminal sends no reply, so bd-tui
+reports it as `→ Sent tui-abc to clipboard via OSC 52 (unverified)` rather than
+with a checkmark. The text has very likely arrived; nothing in the process saw
+it arrive. Paste to find out.
+
+What bd-tui does check first, because these are the ways the sequence provably
+goes nowhere:
+
+- there is a terminal at all (`/dev/tty` opens)
+- inside tmux, an attached client has a non-empty `client_tty`
+- inside tmux, either `allow-passthrough` is on (the sequence is forwarded
+  verbatim) or `set-clipboard` is `on`/`external` and the client's terminal
+  advertises the `clipboard` feature
+
+If your terminal wants BEL rather than `ESC \` to end an escape sequence, set
+`BD_TUI_OSC52_TERMINATOR=bel`; `st8` sends the single-byte 8-bit terminator.
+Both settings reject an unrecognised value rather than quietly using the
+default.
 
 ### Editor integration
 
@@ -386,7 +426,10 @@ bd comment tui-xyz "Your comment text"
 - `.beads` discovery and application-wide state
 
 **`internal/clipboard/`** - Clipboard access
-- Shells out to xclip/pbcopy/clip, keeping the helper's stderr
+- Shells out to xclip/xsel/wl-copy, keeping the helper's stderr
+- `osc52.go` writes the terminal's own clipboard escape sequence for sessions
+  with no local display, and reports the result as unconfirmed because the
+  terminal acknowledges nothing
 
 **`internal/config/`** - Persistence outside the repo
 - `~/.bd-tui/config.json` holds the theme

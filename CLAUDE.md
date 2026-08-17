@@ -172,7 +172,7 @@ bd-lite-tui/
 │   └── list-themes/     # Prints the registered themes
 ├── internal/
 │   ├── app/             # .beads discovery and app context
-│   ├── clipboard/       # xclip/pbcopy/clip wrapper
+│   ├── clipboard/       # xclip/xsel/wl-copy wrapper, plus an OSC 52 route
 │   ├── config/          # ~/.bd-tui/config.json and per-repo collapse state
 │   ├── formatting/      # Colors, status glyphs, detail-panel rendering
 │   ├── identity/        # Who the TUI acts as (git user.name)
@@ -286,7 +286,27 @@ While a dialog is up, `app.SetInputCapture` returns the event untouched
 keybindings are inert.
 
 Clipboard writes (`y`, `Y`, `B`, and clicking the issue ID in the detail panel)
-go through `internal/clipboard`, which shells out to xclip/pbcopy/clip.
+go through `internal/clipboard`, which shells out to xclip/xsel/wl-copy, or
+writes an OSC 52 escape sequence when there is no local display to reach.
+
+Two routes, two clipboards. A display helper reaches the clipboard of the host
+running bd-tui; OSC 52 reaches the clipboard of the machine the user is sitting
+at. `BD_TUI_CLIPBOARD` (`auto`/`helper`/`osc52`) picks between them, because
+over SSH to a host with its own display the helper succeeds while copying
+somewhere useless.
+
+`Result.Confirmed` is the field that matters when touching this code. A helper
+exiting cleanly is an acknowledgement, so the status bar earns its checkmark.
+OSC 52 is acknowledged by nothing — the terminal never replies — so it reports
+`Confirmed: false` and the status bar says "unverified" instead. Do not add a
+code path that sets `Confirmed` without something that actually observed the
+write. `osc52.go` checks preconditions instead (a terminal exists, a tmux client
+has a real `client_tty`, tmux is configured to relay or pass through) and
+refuses rather than sending bytes that provably go nowhere.
+
+Do not route this through tcell's `Screen.SetClipboard`. It emits nothing unless
+the terminfo entry sets the XT flag, which `tmux-256color` does not, and it
+returns no error when it does nothing.
 
 ### Package Responsibilities
 
