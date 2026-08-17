@@ -242,6 +242,46 @@ func (h *harness) press(events ...*tcell.EventKey) {
 	}
 }
 
+// clickAt injects a left click at a screen cell and returns once the event loop
+// has handled it. tview derives MouseLeftClick from a press and a release at the
+// same position, so both events are queued; the barrier key behind them is what
+// makes the call synchronous, exactly as in press.
+//
+// One click per harness: tview turns a second click within its
+// DoubleClickInterval into MouseLeftDoubleClick, which the app does not bind.
+func (h *harness) clickAt(x, y int) {
+	h.t.Helper()
+
+	ch := make(chan struct{})
+	h.mu.Lock()
+	h.barrier = ch
+	h.mu.Unlock()
+
+	h.tui.app.QueueEvent(tcell.NewEventMouse(x, y, tcell.ButtonPrimary, tcell.ModNone))
+	h.tui.app.QueueEvent(tcell.NewEventMouse(x, y, tcell.ButtonNone, tcell.ModNone))
+	h.tui.app.QueueEvent(tcell.NewEventKey(barrierKey, 0, tcell.ModNone))
+
+	select {
+	case <-ch:
+	case <-time.After(harnessTimeout):
+		h.t.Fatalf("timed out waiting for the event loop to handle a click at %d,%d", x, y)
+	}
+}
+
+// clickRowContaining left-clicks the first rendered screen row containing want.
+// Locating the row on screen rather than computing it from borders and offsets
+// keeps the test honest about what the user is actually pointing at.
+func (h *harness) clickRowContaining(want string) {
+	h.t.Helper()
+	for y, line := range h.screenLines() {
+		if strings.Contains(line, want) {
+			h.clickAt(2, y)
+			return
+		}
+	}
+	h.t.Fatalf("no rendered row contains %q:\n%s", want, h.screenText())
+}
+
 // typeRunes presses each rune of s in turn, the way a user types.
 func (h *harness) typeRunes(s string) {
 	h.t.Helper()

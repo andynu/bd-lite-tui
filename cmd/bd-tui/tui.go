@@ -668,6 +668,29 @@ func newTUI(opts tuiOptions) (*tui, error) {
 		issueList.SetTitle(getIssueListTitle())
 	})
 
+	// A left click on a row is the mouse equivalent of Enter. In Paged mode only
+	// one panel is mounted, so a click that merely moved the selection changed
+	// nothing the user could see; it now turns the page to the detail as well
+	// (tui-n0hc). In Columns/Rows both panels are already on screen, so the click
+	// keeps its old meaning and focus stays on the list.
+	//
+	// tview's List runs this before assigning its own currentItem, so the
+	// selection is moved here explicitly: SetCurrentItem fires the changed
+	// handler that repaints the detail, and leaves the List's later assignment a
+	// no-op. Enter reaches this handler only on a header row (the app's input
+	// capture swallows it on an issue), which the indexToIssue guard drops.
+	issueList.SetSelectedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
+		if _, ok := indexToIssue[index]; !ok {
+			return
+		}
+		issueList.SetCurrentItem(index)
+		if currentLayout != layout.Paged || detailPanelFocused {
+			return
+		}
+		detailPanelFocused = true
+		updatePanelFocus()
+	})
+
 	// selectAdjacentIssue moves the selection to the next issue row in the
 	// direction of delta (+1 down, -1 up), stepping over the group headers that
 	// would otherwise leave the detail panel showing the previous issue. The

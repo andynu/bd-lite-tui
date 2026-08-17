@@ -153,6 +153,10 @@ filter are disabled rather than guessing at a name.
 
 Fold state persists per repository in `~/.bd-tui/collapse-<hash>.json`.
 
+With mouse mode on, clicking an issue row selects it. On a terminal narrow
+enough for the paged layout it also opens that issue's detail, the same as
+pressing Enter, since the detail panel is not on screen otherwise.
+
 ### Detail Panel (when focused)
 - `Tab` / `ESC` / `←` - Return focus to issue list
 - `j` / `↓` - Show the next issue, skipping group headers (stops at the end)

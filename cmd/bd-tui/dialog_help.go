@@ -97,6 +97,8 @@ func (h *DialogHelpers) ShowHelpScreen() {
   f           Quick filter (type: p1 bug, feature, etc.)
   S           Show statistics dashboard
   m           Toggle mouse mode on/off
+  Click       Select an issue row; in the paged layout this also
+              opens its detail, the same as Enter
   r           Manual refresh
 
 [cyan::b]Detail Panel (when focused)[-::-]

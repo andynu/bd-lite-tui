@@ -219,6 +219,14 @@ behavior.
 **Mouse mode enabled by default:** `app.EnableMouse(true)` at startup; `m`
 toggles it off when you want the terminal's own text selection back.
 
+A left click on an issue row goes through `issueList.SetSelectedFunc` in
+`cmd/bd-tui/tui.go`. In Paged mode it does what Enter does — select the row and
+turn the page to that issue's detail — because the detail panel is not mounted
+and a click that only moved the highlight showed the user nothing. In
+Columns/Rows it just moves the selection. Header rows are ignored. tview calls
+the handler before assigning its own `currentItem`, so the handler calls
+`SetCurrentItem` itself to get the detail repainted in the right order.
+
 **View modes:** The TUI supports two view modes:
 - **List View (default):** Issues grouped by status (ready/blocked/in-progress)
 - **Tree View:** Issues displayed as dependency hierarchy with ASCII tree characters

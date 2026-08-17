@@ -380,6 +380,84 @@ func TestDetailFocus_ArrowsBrowseInPagedLayout(t *testing.T) {
 	}
 }
 
+// In the paged layout a click on a row has to turn the page as well as move the
+// selection: the detail panel is not mounted, so a click that only highlighted
+// the row left the user staring at an unchanged screen (tui-n0hc).
+func TestMouse_ClickPagesToDetailInPagedLayout(t *testing.T) {
+	h := newHarness(t, basicIssues(), withScreenSize(80, 24))
+
+	if text := h.screenText(); !strings.Contains(text, "READY (3)") {
+		t.Fatalf("test setup: the list is not the mounted page at 80 columns:\n%s", text)
+	}
+
+	h.clickRowContaining("Bravo issue")
+
+	if got := h.currentIssueID(); got != "tui-bbb" {
+		t.Fatalf("the click did not select the row: selected %q, want tui-bbb", got)
+	}
+	if status := h.statusText(); !strings.Contains(status, "Focus: Details") {
+		t.Fatalf("the click did not move focus to the detail panel: %q", status)
+	}
+	text := h.screenText()
+	if strings.Contains(text, "READY (3)") {
+		t.Fatalf("the list is still the mounted page after the click:\n%s", text)
+	}
+	if !strings.Contains(text, "tui-bbb") {
+		t.Fatalf("the detail page does not show the clicked issue:\n%s", text)
+	}
+}
+
+// A section header is not an issue, so clicking one must not turn the page.
+func TestMouse_ClickOnHeaderDoesNotPage(t *testing.T) {
+	h := newHarness(t, basicIssues(), withScreenSize(80, 24))
+
+	h.clickRowContaining("READY (3)")
+
+	if got := h.currentIssueID(); got != "" {
+		t.Fatalf("clicking the header selected issue %q", got)
+	}
+	if status := h.statusText(); !strings.Contains(status, "Focus: List") {
+		t.Fatalf("clicking the header moved focus off the list: %q", status)
+	}
+	if text := h.screenText(); !strings.Contains(text, "READY (3)") {
+		t.Fatalf("clicking the header turned the page:\n%s", text)
+	}
+}
+
+// In the split layouts the detail panel is already on screen, so a click keeps
+// its old meaning: move the selection, leave focus on the list.
+func TestMouse_ClickKeepsListFocusInSplitLayouts(t *testing.T) {
+	for _, mode := range []struct {
+		name  string
+		press string
+	}{
+		{"columns", ""},
+		{"rows", "vv"},
+	} {
+		t.Run(mode.name, func(t *testing.T) {
+			h := newHarness(t, basicIssues(), withScreenSize(120, 24))
+			if mode.press != "" {
+				h.typeRunes(mode.press)
+			}
+
+			h.clickRowContaining("Bravo issue")
+
+			if got := h.currentIssueID(); got != "tui-bbb" {
+				t.Fatalf("the click did not select the row: selected %q, want tui-bbb", got)
+			}
+			if status := h.statusText(); !strings.Contains(status, "Focus: List") {
+				t.Fatalf("the click stole focus from the list: %q", status)
+			}
+			if text := h.screenText(); !strings.Contains(text, "READY (3)") {
+				t.Fatalf("the list stopped being rendered in a split layout:\n%s", text)
+			}
+			if !strings.Contains(h.detailText(), "Bravo issue") {
+				t.Fatalf("the detail panel did not follow the click: %q", h.detailText())
+			}
+		})
+	}
+}
+
 // The focus indicator reaches the screen on a narrow terminal. It used to sit
 // behind the absolute .beads path, which filled the line on its own and left
 // everything after "(N issues)" clipped at the right edge (tui-7j4u).
