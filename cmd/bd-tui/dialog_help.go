@@ -49,6 +49,7 @@ func (h *DialogHelpers) ShowHelpScreen() {
   X           Reopen closed issue with optional reason
   D           Manage dependencies (add/remove blocks, parent-child, related)
   L           Manage labels (add/remove labels)
+  A           Assign issue (set or clear assignee, autocompletes)
   y           Yank (copy) issue ID to clipboard
   Y           Yank (copy) issue ID with title to clipboard
   B           Copy git branch name to clipboard
@@ -58,6 +59,19 @@ func (h *DialogHelpers) ShowHelpScreen() {
   Si          Set status to in_progress
   Sb          Set status to blocked
   Sc          Set status to closed
+
+  Si also claims the issue for you (git user.name) when it has
+  no assignee. An issue someone else holds is never reassigned.
+
+[cyan::b]Assignees[-::-]
+  Rows show a dimmed @name when an issue is assigned. Identity is
+  always git user.name; an agent may tag itself after a slash
+  ("andy/claude-xyz"), which still counts as andy's.
+
+  A           Assign issue (set or clear, autocompletes known names)
+  f  mine        Filter to issues assigned to you
+  f  unassigned  Filter to issues nobody has claimed
+  f  @andy       Filter to andy (matches "andy/claude-xyz" too)
 
 [cyan::b]View Controls[-::-]
   t           Toggle between list and tree view

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/andynu/bd-lite-tui/internal/clipboard"
 	"github.com/andynu/bd-lite-tui/internal/config"
 	"github.com/andynu/bd-lite-tui/internal/formatting"
+	"github.com/andynu/bd-lite-tui/internal/identity"
 	"github.com/andynu/bd-lite-tui/internal/layout"
 	"github.com/andynu/bd-lite-tui/internal/parser"
 	"github.com/andynu/bd-lite-tui/internal/state"
@@ -39,6 +41,12 @@ const (
 	// watcherDebounce is the file watcher debounce interval.
 	watcherDebounce = 200 * time.Millisecond
 )
+
+// resolveIdentity returns the human the TUI acts as. It is a variable rather
+// than a direct call so tests can pin an identity; otherwise every assertion
+// about assignees would depend on whatever git user.name the developer happens
+// to have configured.
+var resolveIdentity = identity.Resolve
 
 // tuiOptions is everything newTUI needs that main() resolves from flags, the
 // environment, and the user's config. Keeping it a plain struct is what makes
@@ -101,6 +109,17 @@ func newTUI(opts tuiOptions) (*tui, error) {
 
 	// Initialize state
 	appState := state.New()
+
+	// Resolve who we are once, from git. An unset user.name leaves this empty,
+	// which disables auto-claim and the "mine" filter rather than guessing at an
+	// identity and writing a wrong name into someone's issue.
+	me := resolveIdentity(opts.BeadsDir)
+	appState.SetIdentity(me)
+	if me == "" {
+		log.Printf("IDENTITY: git user.name is unset; auto-claim and 'mine' filtering are disabled")
+	} else {
+		log.Printf("IDENTITY: acting as %q", me)
+	}
 
 	// Set initial view mode from command line
 	if opts.TreeView {
@@ -867,6 +886,11 @@ func newTUI(opts tuiOptions) (*tui, error) {
 		dialogHelpers.ShowLabelDialog()
 	}
 
+	// Helper function to set or clear the assignee
+	showAssignDialog := func() {
+		dialogHelpers.ShowAssignDialog()
+	}
+
 	// Helper function to close issue with optional reason
 	showCloseIssueDialog := func() {
 		dialogHelpers.ShowCloseIssueDialog()
@@ -1105,12 +1129,28 @@ func newTUI(opts tuiOptions) (*tui, error) {
 				// Execute status update
 				if issue, ok := indexToIssue[issueList.GetCurrentItem()]; ok {
 					issueID := issue.ID
-					log.Printf("BD COMMAND: Executing status update (S%c): bd update %s --status %s", event.Rune(), issueID, newStatus)
-					updatedIssue, err := execBdJSONIssue("update", issueID, "--status", string(newStatus))
+					args := []string{"update", issueID, "--status", newStatus}
+
+					// Auto-claim: moving an unclaimed issue to in_progress also
+					// assigns it to us, in the same bd call. Only when nobody
+					// holds it — taking an issue off someone else silently would
+					// be worse than leaving it as it is.
+					claimed := false
+					if newStatus == "in_progress" && issue.Assignee == "" && me != "" {
+						args = append(args, "--assignee", me)
+						claimed = true
+					}
+
+					log.Printf("BD COMMAND: Executing status update (S%c): bd %s", event.Rune(), strings.Join(args, " "))
+					updatedIssue, err := execBdJSONIssue(args...)
 					if err != nil {
 						statusBar.SetText(errorMsg(fmt.Sprintf("Error updating status: %v", err)))
 					} else {
-						statusBar.SetText(successMsg(fmt.Sprintf("✓ Set %s to %s", updatedIssue.ID, updatedIssue.Status)))
+						msg := fmt.Sprintf("✓ Set %s to %s", updatedIssue.ID, updatedIssue.Status)
+						if claimed {
+							msg += fmt.Sprintf(" and claimed it for %s", me)
+						}
+						statusBar.SetText(successMsg(msg))
 						scheduleRefresh(issueID)
 					}
 				}
@@ -1285,6 +1325,10 @@ func newTUI(opts tuiOptions) (*tui, error) {
 			case 'a':
 				// Open issue creation dialog
 				showCreateIssueDialog()
+				return nil
+			case 'A':
+				// Set or clear the assignee
+				showAssignDialog()
 				return nil
 			case 'e':
 				// Edit issue fields

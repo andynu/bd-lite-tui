@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -77,23 +78,54 @@ type harness struct {
 	done chan error
 }
 
-// harnessOption tweaks the tuiOptions before the app is built.
-type harnessOption func(*tuiOptions)
+// harnessConfig is everything the options adjust before the app is built: the
+// tuiOptions themselves, plus the identity the app should resolve.
+type harnessConfig struct {
+	tui tuiOptions
+
+	// identity is what resolveIdentity returns for the app under test. It
+	// defaults to "" so no test inherits the developer's git user.name.
+	identity string
+
+	// width and height size the simulation screen.
+	width, height int
+}
+
+// harnessOption tweaks the configuration before the app is built.
+type harnessOption func(*harnessConfig)
 
 // withTreeView starts the app in tree view.
 func withTreeView() harnessOption {
-	return func(o *tuiOptions) { o.TreeView = true }
+	return func(c *harnessConfig) { c.tui.TreeView = true }
 }
 
 // withWatcher enables the filesystem watcher, which is off by default so most
 // tests are not at the mercy of fsnotify timing.
 func withWatcher() harnessOption {
-	return func(o *tuiOptions) { o.NoWatcher = false }
+	return func(c *harnessConfig) { c.tui.NoWatcher = false }
 }
 
 // withIssueFilter starts the app with the --issue single-issue restriction.
 func withIssueFilter(id string) harnessOption {
-	return func(o *tuiOptions) { o.IssueID = id }
+	return func(c *harnessConfig) { c.tui.IssueID = id }
+}
+
+// withIdentity pins git user.name for the app under test. Tests that care about
+// assignees have to ask for an identity, so the rest keep asserting against the
+// unresolved-identity case rather than against whatever the developer's git
+// config happens to say.
+func withIdentity(name string) harnessOption {
+	return func(c *harnessConfig) { c.identity = name }
+}
+
+// withScreenSize widens (or narrows) the simulation screen. The default 120
+// columns leaves the list pane around 38 wide, which truncates long rows before
+// they reach the screen; a test asserting on the tail of a row needs more room.
+func withScreenSize(width, height int) harnessOption {
+	return func(c *harnessConfig) {
+		c.width = width
+		c.height = height
+	}
 }
 
 // newHarness writes issues to a temporary .beads directory, builds the app
@@ -123,17 +155,26 @@ func newHarness(t *testing.T, issues []*parser.Issue, opts ...harnessOption) *ha
 
 	h.screen = tcell.NewSimulationScreen("UTF-8")
 
-	options := tuiOptions{
-		BeadsDir:  beadsDir,
-		JSONLPath: h.jsonlPath,
-		Screen:    h.screen,
-		NoWatcher: true,
+	cfg := harnessConfig{
+		tui: tuiOptions{
+			BeadsDir:  beadsDir,
+			JSONLPath: h.jsonlPath,
+			Screen:    h.screen,
+			NoWatcher: true,
+		},
+		width:  120,
+		height: 40,
 	}
 	for _, opt := range opts {
-		opt(&options)
+		opt(&cfg)
 	}
 
-	app, err := newTUI(options)
+	// Pin the identity so nothing consults the developer's git config.
+	realIdentity := resolveIdentity
+	resolveIdentity = func(string) string { return cfg.identity }
+	t.Cleanup(func() { resolveIdentity = realIdentity })
+
+	app, err := newTUI(cfg.tui)
 	if err != nil {
 		t.Fatalf("newTUI: %v", err)
 	}
@@ -142,7 +183,7 @@ func newHarness(t *testing.T, issues []*parser.Issue, opts ...harnessOption) *ha
 	// SetScreen already ran Init, which forces 80x25. Widen past
 	// layout.NarrowThreshold so the default resolves to the columns split
 	// rather than the narrow paged layout.
-	h.screen.SetSize(120, 40)
+	h.screen.SetSize(cfg.width, cfg.height)
 
 	// Intercept the barrier key ahead of the application's own bindings.
 	appCapture := app.app.GetInputCapture()
@@ -218,10 +259,73 @@ func (h *harness) key(k tcell.Key) {
 }
 
 // read runs fn on the tview event loop goroutine, so widget state can be
-// inspected without racing a draw.
+// inspected without racing a draw. QueueUpdate returns only after fn has run,
+// so callers can read values fn assigned.
 func (h *harness) read(fn func()) {
 	h.tui.app.QueueUpdate(fn)
 }
+
+// selectIssue moves the cursor onto the row for id. Tests that care about
+// acting on a particular issue use this instead of counting j presses, which
+// would break whenever the fixture or the grouping changes.
+func (h *harness) selectIssue(id string) {
+	h.t.Helper()
+
+	var found bool
+	h.read(func() {
+		for i := 0; i < h.tui.issueList.GetItemCount(); i++ {
+			if issue, ok := h.tui.indexToIssue[i]; ok && issue.ID == id {
+				h.tui.issueList.SetCurrentItem(i)
+				found = true
+				return
+			}
+		}
+	})
+	if !found {
+		h.t.Fatalf("no row for issue %q; rows are %v", id, h.issueIDs())
+	}
+	h.press() // let the selection change settle through the event loop
+}
+
+// pressButton tabs through the form on the front page until the button whose
+// label contains label has focus, then activates it. Matching on the label
+// rather than a tab count keeps the test readable and order-independent.
+func (h *harness) pressButton(label string) {
+	h.t.Helper()
+
+	// One pass per focusable element, with headroom, so a form that never
+	// focuses the button fails rather than looping forever.
+	for i := 0; i < 32; i++ {
+		var focused string
+		h.read(func() {
+			if button, ok := h.tui.app.GetFocus().(*tview.Button); ok {
+				focused = button.GetLabel()
+			}
+		})
+		if focused != "" && strings.Contains(focused, label) {
+			h.key(tcell.KeyEnter)
+			return
+		}
+		h.key(tcell.KeyTab)
+	}
+	h.t.Fatalf("no form button matching %q after tabbing through the form", label)
+}
+
+// rowContaining returns the rendered screen line containing want, failing the
+// test when no line does.
+func rowContaining(t *testing.T, h *harness, want string) string {
+	t.Helper()
+	for _, line := range h.screenLines() {
+		if strings.Contains(line, want) {
+			return line
+		}
+	}
+	t.Fatalf("no screen line contains %q:\n%s", want, h.screenText())
+	return ""
+}
+
+// errBdFailed is the canned failure for tests that exercise an error path.
+var errBdFailed = errors.New("bd update failed: database is locked")
 
 // waitFor polls cond on the event loop until it holds, failing the test with
 // desc if it does not settle in time.
@@ -383,6 +487,9 @@ func (h *harness) fakeBd(args ...string) (*BdCommandResult, error) {
 			issue.Title = args[i+1]
 		case "--labels":
 			issue.Labels = strings.Split(args[i+1], ",")
+		case "--assignee":
+			// bd drops the key entirely when handed an empty value.
+			issue.Assignee = args[i+1]
 		}
 	}
 	h.writeJSONL()
@@ -475,6 +582,10 @@ func withType(t parser.IssueType) func(*parser.Issue) {
 
 func withLabels(labels ...string) func(*parser.Issue) {
 	return func(i *parser.Issue) { i.Labels = labels }
+}
+
+func withAssignee(assignee string) func(*parser.Issue) {
+	return func(i *parser.Issue) { i.Assignee = assignee }
 }
 
 // withBlockedBy makes the issue depend on blockerID, so it lands in the blocked

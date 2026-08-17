@@ -107,6 +107,7 @@ Debug logs include keyboard events, refresh operations, bd command executions, a
 - `X` - Reopen closed issue with optional reason
 - `D` - Manage dependencies (add/remove blocks, parent-child, related)
 - `L` - Manage labels (add/remove labels)
+- `A` - Assign issue (set or clear the assignee, autocompletes known names)
 - `y` - Yank (copy) issue ID to clipboard
 - `Y` - Yank (copy) issue ID with title to clipboard
 - `B` - Copy git branch name to clipboard
@@ -116,6 +117,21 @@ Debug logs include keyboard events, refresh operations, bd command executions, a
 - `Si` - Set status to in_progress
 - `Sb` - Set status to blocked
 - `Sc` - Set status to closed
+
+`Si` also claims the issue for you when it has no assignee. An issue someone
+else holds keeps its assignee.
+
+### Assignees
+
+Issue rows carry a dimmed `@name` when an issue is assigned. Identity is always
+`git user.name`; an agent may tag itself after a slash (`andy/claude-xyz`), and
+that still counts as andy's. With `user.name` unset, auto-claim and the `mine`
+filter are disabled rather than guessing at a name.
+
+- `A` - Assign issue (set or clear, autocompletes from names already in use)
+- `f` then `mine` - Only issues assigned to you
+- `f` then `unassigned` - Only issues nobody has claimed
+- `f` then `@andy` - Only andy's, including `andy/claude-xyz`
 
 ### View Controls
 - `t` - Toggle between list and tree view

@@ -6,6 +6,7 @@ import (
 
 	"github.com/andynu/bd-lite-tui/internal/formatting"
 	"github.com/andynu/bd-lite-tui/internal/parser"
+	"github.com/andynu/bd-lite-tui/internal/state"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
@@ -24,16 +25,21 @@ func (h *DialogHelpers) ShowQuickFilter() {
   bug, feature, task, epic, chore    Types
   open, in_progress, blocked, closed    Statuses
   #label   Label (e.g., '#ui' or '#bug,#urgent')
+  @name    Assignee ('@andy' also matches 'andy/claude-xyz')
+  mine     Assigned to you (git user.name)
+  unassigned    Nobody is on it
 
 [%s]Examples:[-]
   p1 bug          P1 bugs only
   feature,task    Features and tasks
   p0,p1 open      High priority open issues
   #ui #urgent     Issues with 'ui' or 'urgent' labels
+  mine in_progress    What you are working on
+  unassigned p0,p1    High priority nobody has claimed
 
 [%s]Leave empty to clear all filters[-]`, emphasisColor, accentColor, mutedColor)
 
-	form.AddTextView("", helpText, 0, 11, false, false)
+	form.AddTextView("", helpText, 0, 17, false, false)
 	form.AddInputField("Filter", "", 50, nil, func(text string) {
 		filterQuery = text
 	})
@@ -70,6 +76,32 @@ func (h *DialogHelpers) ShowQuickFilter() {
 				if label != "" {
 					h.AppState.ToggleLabelFilter(label)
 				}
+				continue
+			}
+
+			// Check for assignee (starts with @). "@me" and "@none" are aliases
+			// for the bare 'mine' and 'unassigned' words below.
+			if strings.HasPrefix(token, "@") {
+				switch name := strings.TrimPrefix(token, "@"); name {
+				case "":
+					// bare "@" means nothing; ignore it
+				case "me":
+					h.AppState.ToggleAssigneeFilter(state.AssigneeMine)
+				case "none":
+					h.AppState.ToggleAssigneeFilter(state.AssigneeUnassigned)
+				default:
+					h.AppState.ToggleAssigneeFilter(name)
+				}
+				continue
+			}
+
+			// Check for the assignee keywords
+			switch token {
+			case "mine":
+				h.AppState.ToggleAssigneeFilter(state.AssigneeMine)
+				continue
+			case "unassigned":
+				h.AppState.ToggleAssigneeFilter(state.AssigneeUnassigned)
 				continue
 			}
 

@@ -455,6 +455,16 @@ Your comment here...
 - Builds tree structure from parent-child and blocks dependencies
 - No UI concerns - pure business logic
 
+**`internal/identity/`** - Who the TUI acts as
+- `Resolve(dir)` reads `git user.name`; "" means unknown, which disables
+  auto-claim and the "mine" filter rather than guessing
+- `Human("andy/claude-xyz")` is "andy": an agent may tag itself after a slash,
+  but the value always carries its human
+- `IsMine` answers what `bd list --assignee` cannot, since bd matches the whole
+  string exactly and would miss the tagged form
+- `cmd/bd-tui/tui.go` calls it through the `resolveIdentity` package var, which
+  tests swap so no assertion depends on the developer's git config
+
 **`internal/watcher/`** - File monitoring
 - fsnotify wrapper with debouncing (default 200ms)
 - Triggers callback on file write/create events

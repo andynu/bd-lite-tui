@@ -24,6 +24,7 @@ func TestDialogs_OpenAndCloseOnEscape(t *testing.T) {
 		{"x", "close_issue_dialog"},
 		{"D", "dependency_dialog"},
 		{"L", "label_dialog"},
+		{"A", "assign_dialog"},
 	} {
 		t.Run(tc.page, func(t *testing.T) {
 			h := newHarness(t, basicIssues())
@@ -188,7 +189,7 @@ func TestDialogs_IssueScopedDialogsIgnoreAHeaderRow(t *testing.T) {
 		t.Fatalf("test setup: expected to start on a header, got %q", id)
 	}
 
-	for _, key := range []string{"e", "c", "R", "x", "D", "L"} {
+	for _, key := range []string{"e", "c", "R", "x", "D", "L", "A"} {
 		h.typeRunes(key)
 		if got := h.frontPage(); got != "main" {
 			t.Errorf("%q opened %q from a header row", key, got)
