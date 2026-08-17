@@ -19,7 +19,7 @@ A powerful terminal user interface for the [bd-lite](https://github.com/andynu/b
 ### Editing & Management
 - **Full CRUD operations** - Create, edit, close, and reopen issues without leaving the TUI
 - **Full-field editing** - Edit title, description, design, acceptance criteria, and notes via modal dialog (`e` key)
-- **Quick updates** - Instant priority (0-4) and status (s) changes with single keypress
+- **Quick updates** - Instant priority with `0`-`4`, status with the `s` chord (`so`/`si`/`sb`/`sc`)
 - **Comment system** - Add comments to issues directly from the TUI
 - **Dependency management** - Add/remove blocks, parent-child, and related dependencies via dialog
 - **Label management** - Add/remove labels through dedicated dialog interface
@@ -86,6 +86,8 @@ Debug logs include keyboard events, refresh operations, bd command executions, a
 - `k` / `↑` - Move up
 - `gg` - Jump to top
 - `G` - Jump to bottom
+- `Space` - Page down, wrapping to the top at the end
+- `Ctrl-f` / `Ctrl-b` - Page down / up in the list (vim)
 - `Tab` - Focus detail panel for scrolling
 - `Enter` - Focus detail panel (when on issue)
 - `ESC` - Return focus to issue list
@@ -98,7 +100,7 @@ Debug logs include keyboard events, refresh operations, bd command executions, a
 
 ### Quick Actions
 - `0-4` - Set priority (P0=critical, P1=high, P2=normal, P3=low, P4=lowest)
-- `s` - Cycle status (open → in_progress → blocked → closed → open)
+- `s` - Status chord prefix; see Two-Character Shortcuts below
 - `R` - Rename issue (edit title)
 - `a` - Create new issue (vim-style "add")
 - `c` - Add comment to selected issue
@@ -113,12 +115,15 @@ Debug logs include keyboard events, refresh operations, bd command executions, a
 - `B` - Copy git branch name to clipboard
 
 ### Two-Character Shortcuts
-- `So` - Set status to open
-- `Si` - Set status to in_progress
-- `Sb` - Set status to blocked
-- `Sc` - Set status to closed
+- `so` - Set status to open
+- `si` - Set status to in_progress
+- `sb` - Set status to blocked
+- `sc` - Set status to closed
 
-`Si` also claims the issue for you when it has no assignee. An issue someone
+The prefix is lowercase `s`; uppercase `S` opens the stats dashboard. The chord
+expires 2 seconds after `s`, and any second key other than o/i/b/c cancels it.
+
+`si` also claims the issue for you when it has no assignee. An issue someone
 else holds keeps its assignee.
 
 ### Assignees
@@ -135,12 +140,18 @@ filter are disabled rather than guessing at a name.
 
 ### View Controls
 - `t` - Toggle between list and tree view
+- `o` - Fold/unfold the selected node (tree view, node must have children)
+- `O` - Expand all nodes (tree view)
+- `Z` - Collapse all nodes (tree view)
 - `v` - Cycle layout: auto → columns → rows → paged → auto
 - `C` - Toggle showing closed issues in list view
+- `p` - Toggle the issue ID prefix (`tui-abc` vs `abc`)
 - `f` - Quick filter (type: `p1 bug`, `feature`, etc.)
 - `S` - Show statistics dashboard
 - `m` - Toggle mouse mode on/off
 - `r` - Manual refresh
+
+Fold state persists per repository in `~/.bd-tui/collapse-<hash>.json`.
 
 ### Detail Panel Scrolling (when focused)
 - `Ctrl-d` - Scroll down half page
@@ -204,26 +215,45 @@ Leave empty to clear all filters.
 
 ```
 bd-lite-tui/
-├── cmd/bd-tui/          # Main application and dialog components
-│   ├── main.go          # TUI app, layout, keybindings, event loop
-│   └── dialogs.go       # Modal dialogs for create/edit/dependencies/labels
+├── cmd/
+│   ├── bd-tui/          # Main application
+│   │   ├── main.go      # Flags, config, theme, logging, signals only
+│   │   ├── tui.go       # newTUI: widgets, keybindings, refresh plumbing
+│   │   ├── status_bar.go    # Status line assembly and the .beads path label
+│   │   ├── bd_helpers.go    # execBd / execBdJSON shell-outs to bd
+│   │   ├── dialogs.go       # DialogHelpers struct wiring the dialogs
+│   │   └── dialog_*.go      # One file per modal (create, edit, close, ...)
+│   └── list-themes/     # Prints the registered themes
 ├── internal/
-│   ├── app/             # Application context and initialization
+│   ├── app/             # .beads discovery and app context
+│   ├── clipboard/       # xclip/pbcopy/clip wrapper
+│   ├── config/          # ~/.bd-tui/config.json and per-repo collapse state
 │   ├── formatting/      # Color schemes, status formatting, detail rendering
+│   ├── identity/        # Who the TUI acts as (git user.name)
+│   ├── layout/          # Columns/Rows/Paged decision from terminal width
 │   ├── parser/          # JSONL parser for bd-lite issues
-│   ├── state/           # Issue categorization and filtering logic
+│   ├── state/           # Issue categorization, filtering, tree building
 │   ├── storage/         # JSONL file reader (primary data source)
+│   ├── theme/           # Built-in and TOML themes
 │   ├── ui/              # UI components and rendering helpers
 │   └── watcher/         # Filesystem monitoring with debouncing
 └── go.mod
 ```
+
+`main.go` is a thin entry point. The TUI itself lives in `tui.go` and the
+`dialog_*.go` files, so `newTUI` can be built against a tcell `SimulationScreen`
+in tests. Search `tui.go`, not `main.go`, for behavior.
 
 ## Dependencies
 
 - [tview](https://github.com/rivo/tview) - Terminal UI framework
 - [tcell](https://github.com/gdamore/tcell) - Low-level terminal control
 - [fsnotify](https://github.com/fsnotify/fsnotify) - Filesystem monitoring
-- [clipboard](https://github.com/atotto/clipboard) - Cross-platform clipboard access
+- [toml](https://github.com/BurntSushi/toml) - Parsing TOML theme files
+- [term](https://pkg.go.dev/golang.org/x/term) - Terminal size and capability queries
+
+Clipboard access is `internal/clipboard`, which shells out to xclip/pbcopy/clip
+rather than taking a dependency.
 
 ## Troubleshooting
 
@@ -259,28 +289,34 @@ The TUI watches the JSONL file for changes. Updates should appear within ~200ms.
 Ensure you're in a directory with a `.beads` folder:
 
 ```bash
-bd init --quiet  # Initialize bd-lite if needed
+bd init                      # Initialize bd-lite if needed
+bd init --prefix myproj      # ...with an explicit issue ID prefix
 ```
 
 ### Editor integration
 
 The TUI uses built-in text areas for editing. Press `e` to open the edit dialog with fields for title, description, design, acceptance criteria, and notes.
 
-> **Note:** External `$EDITOR` integration is planned but not yet implemented. See `tui-qxy.1` in the issue tracker.
+There is no `$EDITOR` suspend-and-spawn path. The modal-dialog approach replaced
+the original plan for one, so adding it would be new work rather than finishing
+something started.
 
 ## Development
 
 This project uses [bd-lite](https://github.com/andynu/bd-lite) for its own issue tracking (dogfooding). View current work:
 
 ```bash
-bd ready        # Show ready issues
-bd list         # Show all issues
-bd dep tree     # Show dependency tree
-bd show tui-xyz # Show issue details
-bd comments tui-xyz # Show issue comments (separate from bd show!)
+bd ready             # Show ready issues
+bd list              # Show all issues
+bd dep tree tui-xyz  # Show the dependency tree for one issue (the id is required)
+bd show tui-xyz      # Show issue details, comments included
 ```
 
-**IMPORTANT:** `bd show` does NOT include comments. Always run `bd comments` separately when examining an issue.
+**The whole bd-lite command set** is `cleanup`, `close`, `comment`, `create`
+(alias `new`), `dep` (`add`/`remove`/`tree`), `init`, `list`, `ready`, `show`,
+`update`. Anything else you remember from full beads — `add`, `comments`,
+`label`, `export`, `sync`, `status`, `search` — does not exist here. Check with
+`bd <cmd> --help` before putting a command in docs or in code.
 
 ### Running Tests
 
@@ -338,16 +374,38 @@ bd comment tui-xyz "Your comment text"
 ### Package Responsibilities
 
 **`cmd/bd-tui/`** - Main application
-- `main.go`: TUI layout, keybindings, event loop, issue list rendering
-- `dialogs.go`: Modal dialogs for create/edit/dependencies/labels/help
+- `main.go`: flags (`--debug`, `--theme`, `--view`, `--issue`), config and theme
+  resolution, log setup, signal handling. No UI code.
+- `tui.go`: `newTUI` builds the whole app from a `tuiOptions` struct — status
+  bar, issue list, detail panel, keybindings, watcher, refresh plumbing
+- `status_bar.go`: status line assembly and the shortened `.beads` path label
+- `bd_helpers.go`: `execBd`/`execBdJSON`, the only place that shells out to `bd`
+- `dialogs.go` + `dialog_*.go`: the modal dialogs, one file each
 
 **`internal/app/`** - Application context
-- Initialization and application-wide state
+- `.beads` discovery and application-wide state
+
+**`internal/clipboard/`** - Clipboard access
+- Shells out to xclip/pbcopy/clip, keeping the helper's stderr
+
+**`internal/config/`** - Persistence outside the repo
+- `~/.bd-tui/config.json` holds the theme
+- `~/.bd-tui/collapse-<hash>.json` holds tree collapse state, keyed by a hash of
+  the `.beads` path so each repo keeps its own
 
 **`internal/formatting/`** - Presentation logic
 - Color schemes for priority/status/type
 - Detail panel formatting
 - Status icon and emoji rendering
+
+**`internal/identity/`** - Who the TUI acts as
+- Reads `git user.name`; unset disables auto-claim and the `mine` filter rather
+  than guessing at a name
+- Treats `andy/claude-xyz` as andy, which `bd list --assignee` cannot do
+
+**`internal/layout/`** - Screen arrangement
+- Pure `Resolve(width, pin, pinned)` returning Columns, Rows, or Paged
+- Below 90 columns the answer is always Paged, pin or no pin
 
 **`internal/parser/`** - JSONL parsing
 - Domain types matching bd-lite schema
@@ -363,9 +421,13 @@ bd comment tui-xyz "Your comment text"
 - JSONL file reading (primary data source)
 - Reads and parses `.beads/issues.jsonl`
 
+**`internal/theme/`** - Colors
+- Built-in themes and TOML theme files, selected by `--theme`, `$BEADS_THEME`,
+  or `~/.bd-tui/config.json`. There is no theme-cycling key.
+
 **`internal/ui/`** - UI helpers
 - Component builders
-- Rendering utilities
+- List and tree rendering
 
 **`internal/watcher/`** - File monitoring
 - fsnotify wrapper with 200ms debouncing
@@ -380,9 +442,9 @@ This TUI provides full CRUD operations for bd-lite issues. All modifications use
 bd create "New issue" -p 1
 bd update bd-a1b2 --status in_progress
 bd comment bd-a1b2 "Added comment"
-bd dep add bd-a1b2 bd-xyz3 --type blocks
-bd label bd-a1b2 urgent
-bd close bd-a1b2
+bd dep add bd-a1b2 bd-xyz3          # bd-a1b2 depends on bd-xyz3
+bd update bd-a1b2 --labels "urgent" # the whole label set, not a delta
+bd close bd-a1b2 --reason "Fixed in v1.0"
 
 # Changes appear in TUI within ~200ms
 ```
