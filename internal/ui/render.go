@@ -139,6 +139,8 @@ func formatIssueListItem(issue *parser.Issue, statusIcon string, showPrefix bool
 	text := fmt.Sprintf("  [%s]%s[-] %s %s [P%d[] %s",
 		priorityColor, statusIcon, typeIcon, tview.Escape(displayID), issue.Priority, tview.Escape(issue.Title))
 
+	text += formatAssigneeSuffix(issue)
+
 	// Add labels if present
 	if len(issue.Labels) > 0 {
 		mutedColor := formatting.GetMutedColor()
@@ -153,6 +155,16 @@ func formatIssueListItem(issue *parser.Issue, statusIcon string, showPrefix bool
 	}
 
 	return text
+}
+
+// formatAssigneeSuffix renders the assignee as a dimmed "@name", or "" when the
+// issue is unassigned. Assignee values are user-controlled, so they are escaped
+// for the same reason titles and labels are.
+func formatAssigneeSuffix(issue *parser.Issue) string {
+	if issue.Assignee == "" {
+		return ""
+	}
+	return fmt.Sprintf(" [%s]@%s[-]", formatting.GetMutedColor(), tview.Escape(issue.Assignee))
 }
 
 // renderTreeNode recursively renders a tree node and its children
@@ -226,6 +238,8 @@ func renderTreeNode(
 	// "[P%d[]" renders a literal "[P1]"; see formatIssueListItem (tui-6ajo).
 	text := fmt.Sprintf("%s%s%s[%s]%s[-] %s [%s]%s[-] [P%d[] %s",
 		prefix, branch, collapseIndicator, statusColor, statusIcon, typeIcon, priorityColor, tview.Escape(displayID), issue.Priority, tview.Escape(issue.Title))
+
+	text += formatAssigneeSuffix(issue)
 
 	// Add child count for collapsed nodes
 	if hasChildren && isCollapsed {

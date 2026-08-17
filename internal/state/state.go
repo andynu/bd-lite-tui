@@ -2,8 +2,10 @@ package state
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
+	"github.com/andynu/bd-lite-tui/internal/identity"
 	"github.com/andynu/bd-lite-tui/internal/parser"
 )
 
@@ -33,7 +35,23 @@ type State struct {
 	typeFilter     map[parser.IssueType]bool // nil = no filter, otherwise only show these types
 	statusFilter   map[parser.Status]bool    // nil = no filter, otherwise only show these statuses
 	labelFilter    map[string]bool           // nil = no filter, otherwise only show issues with these labels
+	assigneeFilter map[string]bool           // nil = no filter, otherwise only show issues matching one of these (lowercased; see the Assignee* sentinels)
+
+	// me is the human the TUI is acting as (git user.name), or "" when it could
+	// not be resolved. Only AssigneeMine consults it.
+	me string
 }
+
+// Sentinel keys for the assignee filter. Both are prefixed with a NUL so they
+// can never collide with an assignee a user could actually type.
+const (
+	// AssigneeMine matches issues assigned to the current identity, including
+	// agent-tagged values like "andy/claude-xyz".
+	AssigneeMine = "\x00mine"
+
+	// AssigneeUnassigned matches issues with no assignee at all.
+	AssigneeUnassigned = "\x00unassigned"
+)
 
 // FilterMode represents different filtering options
 type FilterMode int
@@ -219,7 +237,8 @@ func (s *State) IsEffectivelyBlocked(issueID string) bool {
 
 // applyFilters filters a list of issues based on active filters
 func (s *State) applyFilters(issues []*parser.Issue) []*parser.Issue {
-	if s.priorityFilter == nil && s.typeFilter == nil && s.statusFilter == nil && s.labelFilter == nil {
+	if s.priorityFilter == nil && s.typeFilter == nil && s.statusFilter == nil &&
+		s.labelFilter == nil && s.assigneeFilter == nil {
 		return issues
 	}
 
@@ -255,9 +274,42 @@ func (s *State) applyFilters(issues []*parser.Issue) []*parser.Issue {
 			}
 		}
 
+		// Check assignee filter
+		if s.assigneeFilter != nil && !s.matchesAssigneeFilter(issue) {
+			continue
+		}
+
 		filtered = append(filtered, issue)
 	}
 	return filtered
+}
+
+// matchesAssigneeFilter reports whether an issue satisfies any active assignee
+// filter entry. Entries are OR-ed, mirroring how the other multi-value filters
+// behave.
+func (s *State) matchesAssigneeFilter(issue *parser.Issue) bool {
+	assignee := strings.ToLower(strings.TrimSpace(issue.Assignee))
+	human := strings.ToLower(identity.Human(issue.Assignee))
+
+	for value := range s.assigneeFilter {
+		switch value {
+		case AssigneeUnassigned:
+			if assignee == "" {
+				return true
+			}
+		case AssigneeMine:
+			if identity.IsMine(issue.Assignee, s.me) {
+				return true
+			}
+		default:
+			// A named filter matches the whole value or just its human part, so
+			// filtering on "andy" also catches "andy/claude-xyz".
+			if assignee != "" && (assignee == value || human == value) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // GetReadyIssues returns issues that are ready to work on
@@ -782,12 +834,61 @@ func (s *State) ToggleLabelFilter(label string) {
 	}
 }
 
+// ToggleAssigneeFilter toggles an assignee in the filter. value is either a
+// name or one of the AssigneeMine / AssigneeUnassigned sentinels; names are
+// normalized to lower case so the filter is case-insensitive. An empty value is
+// ignored, and AssigneeMine is ignored when no identity is known (there would be
+// nothing to compare against, and silently matching everything would be worse).
+func (s *State) ToggleAssigneeFilter(value string) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return
+	}
+	if value == AssigneeMine && s.me == "" {
+		return
+	}
+
+	if s.assigneeFilter == nil {
+		s.assigneeFilter = make(map[string]bool)
+	}
+
+	if s.assigneeFilter[value] {
+		delete(s.assigneeFilter, value)
+		if len(s.assigneeFilter) == 0 {
+			s.assigneeFilter = nil
+		}
+	} else {
+		s.assigneeFilter[value] = true
+	}
+}
+
+// SetIdentity records the human the TUI is acting as (git user.name). An empty
+// string means the identity could not be resolved.
+func (s *State) SetIdentity(me string) {
+	s.me = strings.TrimSpace(me)
+}
+
+// Identity returns the human the TUI is acting as, or "" when unknown.
+func (s *State) Identity() string {
+	return s.me
+}
+
+// IsMine reports whether the given issue is assigned to the current identity,
+// treating an agent-tagged value ("andy/claude-xyz") as its human's.
+func (s *State) IsMine(issue *parser.Issue) bool {
+	if issue == nil {
+		return false
+	}
+	return identity.IsMine(issue.Assignee, s.me)
+}
+
 // ClearAllFilters removes all active filters
 func (s *State) ClearAllFilters() {
 	s.priorityFilter = nil
 	s.typeFilter = nil
 	s.statusFilter = nil
 	s.labelFilter = nil
+	s.assigneeFilter = nil
 }
 
 // IsPriorityFiltered returns true if the given priority is in the active filter
@@ -810,9 +911,16 @@ func (s *State) IsLabelFiltered(label string) bool {
 	return s.labelFilter != nil && s.labelFilter[label]
 }
 
+// IsAssigneeFiltered returns true if the given assignee (or sentinel) is in the
+// active filter
+func (s *State) IsAssigneeFiltered(value string) bool {
+	return s.assigneeFilter != nil && s.assigneeFilter[strings.ToLower(strings.TrimSpace(value))]
+}
+
 // HasActiveFilters returns true if any filters are active
 func (s *State) HasActiveFilters() bool {
-	return s.priorityFilter != nil || s.typeFilter != nil || s.statusFilter != nil || s.labelFilter != nil
+	return s.priorityFilter != nil || s.typeFilter != nil || s.statusFilter != nil ||
+		s.labelFilter != nil || s.assigneeFilter != nil
 }
 
 // GetActiveFilters returns a human-readable description of active filters
@@ -869,7 +977,28 @@ func (s *State) GetActiveFilters() string {
 			labels = append(labels, label)
 		}
 		if len(labels) > 0 {
+			sort.Strings(labels)
 			filters = append(filters, "Label: "+strings.Join(labels, ","))
+		}
+	}
+
+	// Assignee filters. Sorted so the description is stable across repaints;
+	// the sentinels render as words rather than their NUL-prefixed keys.
+	if s.assigneeFilter != nil {
+		var assignees []string
+		for value := range s.assigneeFilter {
+			switch value {
+			case AssigneeMine:
+				assignees = append(assignees, "mine")
+			case AssigneeUnassigned:
+				assignees = append(assignees, "unassigned")
+			default:
+				assignees = append(assignees, value)
+			}
+		}
+		if len(assignees) > 0 {
+			sort.Strings(assignees)
+			filters = append(filters, "Assignee: "+strings.Join(assignees, ","))
 		}
 	}
 
@@ -890,4 +1019,23 @@ func (s *State) GetAllLabels() []string {
 		labels = append(labels, label)
 	}
 	return labels
+}
+
+// GetAllAssignees returns every distinct assignee present in the issue set, in
+// sorted order. Values keep their original casing and any agent tag, so the
+// assign dialog can offer "andy" and "andy/claude-xyz" as separate completions.
+func (s *State) GetAllAssignees() []string {
+	assigneeSet := make(map[string]bool)
+	for _, issue := range s.issues {
+		if assignee := strings.TrimSpace(issue.Assignee); assignee != "" {
+			assigneeSet[assignee] = true
+		}
+	}
+
+	assignees := make([]string, 0, len(assigneeSet))
+	for assignee := range assigneeSet {
+		assignees = append(assignees, assignee)
+	}
+	sort.Strings(assignees)
+	return assignees
 }
