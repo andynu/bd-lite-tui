@@ -4,36 +4,18 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
-// The message is checked here rather than through the tcell harness because the
-// missing-store branch runs in main() and calls os.Exit before newTUI is ever
-// reached, so no SimulationScreen test can drive it.
-func TestMissingStoreMessage(t *testing.T) {
-	path := "/tmp/example/.beads/issues.jsonl"
-	msg := missingStoreMessage(path)
-
-	if !strings.Contains(msg, path) {
-		t.Errorf("message does not name the missing path %q:\n%s", path, msg)
-	}
-	if !strings.Contains(msg, `bd create "First issue"`) {
-		t.Errorf("message does not suggest bd create:\n%s", msg)
-	}
-
-	// The bug this replaced: bd-lite has no export command, so the old advice
-	// ("bd export -o .beads/issues.jsonl") produced `unknown command "export"`.
-	for _, absent := range []string{"bd export", "bd sync", "bd status"} {
-		if strings.Contains(msg, absent) {
-			t.Errorf("message suggests %q, which is not a bd-lite command:\n%s", absent, msg)
-		}
-	}
-}
-
-// Pins the bd-lite behavior the message asserts. If init ever learns to repair a
-// half-built .beads, this fails and the wording should be revisited.
-func TestMissingStoreRecovery_Integration(t *testing.T) {
+// Pins the bd-lite behavior the TUI's empty-store handling assumes: a .beads
+// directory with no issues.jsonl is a usable store, and the file appears on the
+// first write rather than at init time.
+//
+// This is why bd-tui no longer exits when the file is absent. It is also why
+// `bd init` is not a repair step: FindBeadsDir only returns once .beads exists,
+// and init refuses that case outright ("Error: .beads directory already
+// exists"), with or without --prefix.
+func TestBdCreatesStoreOnFirstWrite_Integration(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
@@ -53,16 +35,13 @@ func TestMissingStoreRecovery_Integration(t *testing.T) {
 
 	t.Chdir(dir)
 
-	// The advice the ticket originally proposed, and why it is not in the message.
-	initOut, err := exec.Command("bd", "init").CombinedOutput()
-	if err == nil {
-		t.Errorf("bd init succeeded in an existing .beads; the message's claim is now stale: %s", initOut)
+	if initOut, err := exec.Command("bd", "init").CombinedOutput(); err == nil {
+		t.Errorf("bd init succeeded in an existing .beads; the store may no longer need bd create to appear: %s", initOut)
 	}
 	if _, err := os.Stat(jsonlPath); err == nil {
-		t.Error("bd init created issues.jsonl; the message should recommend it again")
+		t.Error("bd init created issues.jsonl")
 	}
 
-	// The advice the message actually gives.
 	if out, err := exec.Command("bd", "create", "First issue").CombinedOutput(); err != nil {
 		t.Fatalf("bd create failed: %v: %s", err, out)
 	}

@@ -89,6 +89,10 @@ type harnessConfig struct {
 
 	// width and height size the simulation screen.
 	width, height int
+
+	// noStoreFile leaves .beads without an issues.jsonl, the state of a
+	// repository where bd has not written anything yet.
+	noStoreFile bool
 }
 
 // harnessOption tweaks the configuration before the app is built.
@@ -103,6 +107,13 @@ func withTreeView() harnessOption {
 // tests are not at the mercy of fsnotify timing.
 func withWatcher() harnessOption {
 	return func(c *harnessConfig) { c.tui.NoWatcher = false }
+}
+
+// withoutStoreFile starts the app against a .beads that has no issues.jsonl.
+// Any fixture issues stay unwritten until the test calls writeJSONL, which is
+// how it simulates bd creating the store.
+func withoutStoreFile() harnessOption {
+	return func(c *harnessConfig) { c.noStoreFile = true }
 }
 
 // withIssueFilter starts the app with the --issue single-issue restriction.
@@ -146,7 +157,6 @@ func newHarness(t *testing.T, issues []*parser.Issue, opts ...harnessOption) *ha
 		issues:    issues,
 		done:      make(chan error, 1),
 	}
-	h.writeJSONL()
 
 	// Route every bd invocation into the fake. Restored when the test ends.
 	realExec := execBdJSON
@@ -167,6 +177,10 @@ func newHarness(t *testing.T, issues []*parser.Issue, opts ...harnessOption) *ha
 	}
 	for _, opt := range opts {
 		opt(&cfg)
+	}
+
+	if !cfg.noStoreFile {
+		h.writeJSONL()
 	}
 
 	// Pin the identity so nothing consults the developer's git config.

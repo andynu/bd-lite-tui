@@ -294,8 +294,6 @@ The TUI watches the JSONL file for changes. Updates should appear within ~200ms.
 
 ### File not found error
 
-Two different startup failures name a path, and they want different fixes.
-
 `.beads directory not found` means there is no store in this directory or any
 parent:
 
@@ -304,12 +302,12 @@ bd init                      # Initialize bd-lite if needed
 bd init --prefix myproj      # ...with an explicit issue ID prefix
 ```
 
-`.beads/issues.jsonl not found` means the directory is there but the store file
-is not. `bd init` cannot fix that one; it refuses to run once `.beads` exists.
+A `.beads` directory that has no `issues.jsonl` yet is not a failure. bd-lite
+creates that file on the first write, so bd-tui opens an empty board and fills
+it in as soon as something is there:
 
 ```bash
-bd create "First issue"      # writes the store
-touch .beads/issues.jsonl    # ...or open an empty board
+bd create "First issue"      # writes the store; the open TUI picks it up
 ```
 
 ### Clipboard over SSH

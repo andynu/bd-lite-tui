@@ -613,18 +613,18 @@ bd create "Test issue" -p 2
 bd init            # or: bd init --prefix myproj
 ```
 
-### issues.jsonl not found
+### .beads with no issues.jsonl
 
-**Cause:** `.beads` exists but holds no store file, so `FindBeadsDir` succeeds
-and the `os.Stat` in `main.go` fails.
+Not an error. bd-lite treats a store file that has not been written yet as an
+empty store, and so does the TUI: it opens an empty board with "No issues found
+/ Press 'a' to create an issue" in the list. `storage.NewJSONLReader` accepts a
+missing path and `LoadIssues` re-checks it on every load, so the first `bd
+create` fills the board in place — the watcher registers the `.beads` directory
+rather than the file inode, so the file appearing is an ordinary change event.
 
-**Fix:** not `bd init` — it errors with ".beads directory already exists"
-whenever the directory is present, `--prefix` or not, and never repairs a
-partial store.
-```bash
-bd create "First issue"      # writes .beads/issues.jsonl
-touch .beads/issues.jsonl    # ...or open an empty board
-```
+`bd init` is not the fix if you want the file sooner: it errors with ".beads
+directory already exists" whenever the directory is present, `--prefix` or not,
+and never repairs a partial store. `bd create "First issue"` writes it.
 
 ### TUI not updating after bd commands
 

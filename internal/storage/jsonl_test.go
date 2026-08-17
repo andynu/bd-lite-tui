@@ -27,10 +27,55 @@ func TestNewJSONLReader(t *testing.T) {
 	}
 }
 
+// A .beads that has never been written to has no issues.jsonl. bd-lite reads
+// that as an empty store, so the reader does too: no error, no issues, and the
+// file is picked up once it appears.
 func TestNewJSONLReader_NonexistentFile(t *testing.T) {
-	_, err := NewJSONLReader("/nonexistent/path/issues.jsonl")
-	if err == nil {
-		t.Fatal("Expected error for nonexistent file")
+	jsonlPath := filepath.Join(t.TempDir(), "issues.jsonl")
+
+	reader, err := NewJSONLReader(jsonlPath)
+	if err != nil {
+		t.Fatalf("NewJSONLReader on a missing file failed: %v", err)
+	}
+
+	issues, err := reader.LoadIssues(context.Background())
+	if err != nil {
+		t.Fatalf("LoadIssues on a missing file failed: %v", err)
+	}
+	if len(issues) != 0 {
+		t.Fatalf("Expected 0 issues from a missing file, got %d", len(issues))
+	}
+
+	// The absence is re-checked per load, so the first write is visible without
+	// reopening the reader.
+	line := `{"id":"test-1","title":"First issue","status":"open","priority":2,"issue_type":"task","created_at":"2025-01-01T00:00:00Z","updated_at":"2025-01-01T00:00:00Z"}` + "\n"
+	if err := os.WriteFile(jsonlPath, []byte(line), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	issues, err = reader.LoadIssues(context.Background())
+	if err != nil {
+		t.Fatalf("LoadIssues after the file appeared failed: %v", err)
+	}
+	if len(issues) != 1 || issues[0].ID != "test-1" {
+		t.Fatalf("Expected the newly written issue, got %+v", issues)
+	}
+}
+
+// Real stat failures still fail. A directory at the store path is the readable
+// stand-in for the permission cases, which cannot be provoked portably.
+func TestNewJSONLReader_UnreadablePath(t *testing.T) {
+	dirAsFile := filepath.Join(t.TempDir(), "issues.jsonl")
+	if err := os.Mkdir(dirAsFile, 0755); err != nil {
+		t.Fatalf("failed to create directory: %v", err)
+	}
+
+	reader, err := NewJSONLReader(dirAsFile)
+	if err != nil {
+		return // stat-time rejection is fine
+	}
+	if _, err := reader.LoadIssues(context.Background()); err == nil {
+		t.Fatal("Expected an error reading a directory as the issue store")
 	}
 }
 

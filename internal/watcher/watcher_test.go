@@ -52,6 +52,38 @@ func TestWatcher(t *testing.T) {
 	}
 }
 
+// The store file does not have to exist when the watch starts: bd-lite creates
+// .beads/issues.jsonl on the first write, and the TUI opens an empty board
+// until then. Because the watch is registered on the directory, the file's
+// creation is an ordinary event.
+func TestWatcher_FileAppearsLater(t *testing.T) {
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "issues.jsonl")
+
+	called := make(chan bool, 10)
+	w, err := New(testFile, 50*time.Millisecond, func() { called <- true })
+	if err != nil {
+		t.Fatalf("Failed to create watcher: %v", err)
+	}
+
+	if err := w.Start(); err != nil {
+		t.Fatalf("Failed to start watcher on a missing file: %v", err)
+	}
+	defer func() { _ = w.Stop() }()
+
+	time.Sleep(100 * time.Millisecond)
+
+	if err := os.WriteFile(testFile, []byte("{}\n"), 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	select {
+	case <-called:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("onChange was not called when the watched file was created")
+	}
+}
+
 func TestWatcherDebounce(t *testing.T) {
 	tmpDir := t.TempDir()
 	testFile := filepath.Join(tmpDir, "test.txt")
