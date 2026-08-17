@@ -91,12 +91,16 @@ func TestSearch_RevealsAClosedIssue(t *testing.T) {
 	if got := h.currentIssueID(); got != "tui-zzz" {
 		t.Fatalf("search selected %q, want the revealed tui-zzz", got)
 	}
-	status := h.statusText()
-	if !strings.Contains(status, "matched tui-zzz") {
-		t.Errorf("status bar did not report the match: %q", status)
+	// Read the status line off the screen: the "[revealed]" note was in the
+	// text passed to SetText all along, and tview swallowed it as a style tag
+	// (tui-42ws).
+	line := rowContaining(t, h, "Search:")
+	if !strings.Contains(line, "matched tui-zzz") {
+		t.Errorf("status bar did not report the match: %q", line)
 	}
-	// The trailing "[revealed]" note is not asserted: tview parses it as a style
-	// tag and it never reaches the screen (tui-42ws).
+	if !strings.Contains(line, "[revealed]") {
+		t.Errorf("status bar did not say the issue had to be revealed: %q", line)
+	}
 }
 
 // Searching an id collapsed under a parent in tree view expands the ancestors.

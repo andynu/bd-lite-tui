@@ -107,21 +107,24 @@ func TestStatusChord_UnknownSecondKeyCancelsTheChord(t *testing.T) {
 	}
 }
 
-// t toggles between list and tree view, and the list title reports which is up.
+// t toggles between list and tree view, and the list border reports which is
+// up. The mode indicator is read off the screen: as the title text it was
+// "Issues [List]", but tview ate the tag and the border said only "Issues"
+// (tui-42ws).
 func TestViewMode_ToggleBetweenListAndTree(t *testing.T) {
 	issues := basicIssues()
 	issues = append(issues, newIssue("tui-ddd", "Delta child", withParent("tui-aaa")))
 	h := newHarness(t, issues)
 
-	if title := h.listTitle(); !strings.Contains(title, "[List]") {
-		t.Fatalf("expected to start in list view, title is %q", title)
+	if text := h.screenText(); !strings.Contains(text, "Issues [List]") {
+		t.Fatalf("expected to start in list view, screen is:\n%s", text)
 	}
 
 	h.typeRunes("t")
-	if title := h.listTitle(); !strings.Contains(title, "[Tree]") {
-		t.Fatalf("after t: title is %q, want tree view", title)
-	}
 	text := h.screenText()
+	if !strings.Contains(text, "Issues [Tree]") {
+		t.Fatalf("after t: the border does not report tree view:\n%s", text)
+	}
 	if !strings.Contains(text, "DEPENDENCY TREE") {
 		t.Errorf("tree view did not render its header:\n%s", text)
 	}
@@ -132,8 +135,8 @@ func TestViewMode_ToggleBetweenListAndTree(t *testing.T) {
 	}
 
 	h.typeRunes("t")
-	if title := h.listTitle(); !strings.Contains(title, "[List]") {
-		t.Fatalf("after the second t: title is %q, want list view", title)
+	if text := h.screenText(); !strings.Contains(text, "Issues [List]") {
+		t.Fatalf("after the second t: the border does not report list view:\n%s", text)
 	}
 }
 
@@ -159,32 +162,39 @@ func TestShowClosed_ToggleAddsClosedIssues(t *testing.T) {
 	}
 }
 
-// v cycles the layout pin, and the status bar marks a pinned layout with a
-// trailing asterisk.
+// v cycles the layout pin. The status bar names the layout in both states:
+// bare while it is resolved from the terminal width, with a trailing asterisk
+// once pinned.
 //
-// The unpinned indicator is deliberately not asserted: tview eats the bare
-// "[Columns]" as a color tag so it never reaches the screen (tui-42ws).
+// Every assertion reads the rendered screen rather than statusBar.GetText.
+// The unpinned indicator was invisible for months (tui-42ws) while the text
+// handed to SetText was correct the whole time: tview parsed "[Columns]" as a
+// color tag and swallowed it. Only "[Columns*]" survived, because the asterisk
+// made the tag invalid, which is exactly the asymmetry this test now pins down.
 func TestLayout_VCyclesThePin(t *testing.T) {
 	h := newHarness(t, basicIssues())
 
-	h.typeRunes("v") // pin Columns
-	if status := h.statusText(); !strings.Contains(status, layout.Columns.String()+"*") {
-		t.Fatalf("after v: expected a pinned Columns layout, got %q", status)
+	// The harness screen is 120 columns, which resolves to Columns, and nothing
+	// is pinned yet.
+	if line := rowContaining(t, h, "Beads TUI"); !strings.Contains(line, "["+layout.Columns.String()+"]") {
+		t.Fatalf("the automatic layout indicator did not reach the screen: %q", line)
 	}
 
-	h.typeRunes("v") // pin Rows
-	if status := h.statusText(); !strings.Contains(status, layout.Rows.String()+"*") {
-		t.Fatalf("after vv: expected a pinned Rows layout, got %q", status)
-	}
-
-	h.typeRunes("v") // pin Paged
-	if status := h.statusText(); !strings.Contains(status, layout.Paged.String()+"*") {
-		t.Fatalf("after vvv: expected a pinned Paged layout, got %q", status)
+	for _, want := range []layout.Mode{layout.Columns, layout.Rows, layout.Paged} {
+		h.typeRunes("v")
+		line := rowContaining(t, h, "Beads TUI")
+		if !strings.Contains(line, "["+want.String()+"*]") {
+			t.Fatalf("expected a pinned %s layout on screen, got %q", want, line)
+		}
 	}
 
 	h.typeRunes("v") // back to automatic
-	if status := h.statusText(); strings.Contains(status, "*") {
-		t.Fatalf("after vvvv: expected the pin to be released, got %q", status)
+	line := rowContaining(t, h, "Beads TUI")
+	if strings.Contains(line, "*") {
+		t.Fatalf("after vvvv: expected the pin to be released, got %q", line)
+	}
+	if !strings.Contains(line, "["+layout.Columns.String()+"]") {
+		t.Fatalf("after vvvv: expected the resolved layout on screen, got %q", line)
 	}
 }
 

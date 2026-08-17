@@ -113,10 +113,13 @@ func formatStatusBar(f statusBarFields) string {
 
 	fmt.Fprintf(&b, "[%s]Beads TUI[-] - %s (%d issues)", f.EmphasisColor, f.Location, f.IssueCount)
 	fmt.Fprintf(&b, " [Focus: %s]", f.Focus)
-	// The bare "[Columns]" form is eaten by tview's color-tag parser and never
-	// reaches the screen; only the pinned "[Columns*]" survives. That is
-	// tui-42ws, fixed separately.
-	fmt.Fprintf(&b, " [%s]", f.Layout)
+	// "[%s[]" is tview's escape for a literal "[Columns]". Written bare, the tag
+	// parser reads "Columns" as a color name and swallows the whole thing, so
+	// the indicator only ever appeared in its pinned "[Columns*]" form, where
+	// the asterisk made the tag invalid (tui-42ws). The escape is applied to
+	// both forms: the fields around it use the same "[Word: value]" shape and a
+	// reader should not have to know which of them tview happens to accept.
+	fmt.Fprintf(&b, " [%s[]", f.Layout)
 
 	if f.Filters != "" {
 		fmt.Fprintf(&b, " [Filters: %s]", f.Filters)

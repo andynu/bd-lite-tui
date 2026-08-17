@@ -348,17 +348,14 @@ func (h *harness) waitFor(desc string, cond func() bool) {
 // --- state accessors -------------------------------------------------------
 
 // statusText returns the status bar contents with color tags stripped.
+//
+// Use screenText (or rowContaining) for anything in square brackets: this is
+// the text the app handed to SetText, and a "[Word]" that tview swallows as a
+// style tag reads identically here whether or not it is escaped (tui-42ws).
 func (h *harness) statusText() string {
 	var text string
 	h.read(func() { text = h.tui.statusBar.GetText(true) })
 	return text
-}
-
-// listTitle returns the issue list's border title.
-func (h *harness) listTitle() string {
-	var title string
-	h.read(func() { title = h.tui.issueList.GetTitle() })
-	return title
 }
 
 // detailText returns the detail panel contents with color tags stripped.

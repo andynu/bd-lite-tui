@@ -237,7 +237,9 @@ func newTUI(opts tuiOptions) (*tui, error) {
 				posStr = fmt.Sprintf(" %d/%d", issueNum, len(indexToIssue))
 			}
 		}
-		return fmt.Sprintf("Issues [%s]%s (t:%s)", mode, posStr, toggle)
+		// "[%s[]" renders a literal "[List]" / "[Tree]"; bare, tview reads the
+		// word as a color name and eats the whole tag (tui-42ws).
+		return fmt.Sprintf("Issues [%s[]%s (t:%s)", mode, posStr, toggle)
 	}
 
 	// The .beads path is shortened once: it never changes, and at full length it
@@ -802,7 +804,8 @@ func newTUI(opts tuiOptions) (*tui, error) {
 			issueList.SetCurrentItem(matchIndex)
 			revealNote := ""
 			if revealed {
-				revealNote = " [revealed]"
+				// "[revealed[]" renders a literal "[revealed]" (tui-42ws).
+				revealNote = " [revealed[]"
 			}
 			statusBar.SetText(fmt.Sprintf("[%s]Search:[-] %s [matched %s]%s [ESC to exit search]",
 				emphasisColor, query, target.ID, revealNote))

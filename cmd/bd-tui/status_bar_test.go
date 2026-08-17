@@ -101,8 +101,10 @@ func TestFormatStatusBarOrdersActionableFieldsFirst(t *testing.T) {
 	})
 
 	// Everything the user acts on has to precede the decoration, because a
-	// narrow terminal clips the tail.
-	order := []string{"Beads TUI", "(3 issues)", "[Focus: List]", "[Paged]", "[Mouse: ON]", "[? help | v layout]"}
+	// narrow terminal clips the tail. The layout field carries tview's "[]"
+	// escape, so it reads as "[Paged[]" here and as "[Paged]" on screen; see
+	// TestLayout_VCyclesThePin for the rendered assertion.
+	order := []string{"Beads TUI", "(3 issues)", "[Focus: List]", "[Paged[]", "[Mouse: ON]", "[? help | v layout]"}
 	prev := -1
 	for _, want := range order {
 		at := strings.Index(line, want)
