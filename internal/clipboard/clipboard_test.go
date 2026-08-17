@@ -2,6 +2,7 @@ package clipboard
 
 import (
 	"errors"
+	"io"
 	"os/exec"
 	"strings"
 	"testing"
@@ -39,7 +40,17 @@ func (r *recorder) callsTo(name string) []call {
 	return out
 }
 
+// newTestCopier builds a Copier with no terminal, so the OSC 52 fallback fails
+// at the first step and these tests stay about the display helpers. The tests
+// in osc52_test.go supply a terminal.
 func newTestCopier(env map[string]string, tools []string, r *recorder) *Copier {
+	c := newTestCopierWithTTY(env, tools, r, nil)
+	c.openTTY = func() (io.WriteCloser, error) { return nil, errors.New("no such device or address") }
+	return c
+}
+
+// newTestCopierWithTTY gives the Copier a terminal to write to, captured in tty.
+func newTestCopierWithTTY(env map[string]string, tools []string, r *recorder, tty *fakeTTY) *Copier {
 	installed := make(map[string]bool, len(tools))
 	for _, t := range tools {
 		installed[t] = true
@@ -52,8 +63,34 @@ func newTestCopier(env map[string]string, tools []string, r *recorder) *Copier {
 			}
 			return "", exec.ErrNotFound
 		},
-		run: r.run,
+		run:     r.run,
+		openTTY: func() (io.WriteCloser, error) { return tty, nil },
 	}
+}
+
+// fakeTTY stands in for /dev/tty and records every Write separately, so a test
+// can tell one write of a whole sequence from several partial ones.
+type fakeTTY struct {
+	writes [][]byte
+	closed bool
+}
+
+func (f *fakeTTY) Write(p []byte) (int, error) {
+	f.writes = append(f.writes, append([]byte(nil), p...))
+	return len(p), nil
+}
+
+func (f *fakeTTY) Close() error {
+	f.closed = true
+	return nil
+}
+
+func (f *fakeTTY) written() []byte {
+	var out []byte
+	for _, w := range f.writes {
+		out = append(out, w...)
+	}
+	return out
 }
 
 // tmuxResponder answers `tmux show-environment NAME` from a map, using tmux's
@@ -239,6 +276,130 @@ func TestCopyWithoutAnyHelperInstalled(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "xclip") {
 		t.Errorf("error = %q, want it to name the helpers to install", err)
+	}
+}
+
+// Route selection. A display helper writes to this host's clipboard; OSC 52
+// writes to the clipboard of whoever is sitting at the terminal. Which of those
+// the user wants is not something the process can work out for itself, so the
+// choice is BD_TUI_CLIPBOARD's and the fallback only covers the case where
+// there is no local display at all.
+
+func TestCopyViaHelperIsConfirmed(t *testing.T) {
+	r := &recorder{}
+	c := newTestCopier(map[string]string{"DISPLAY": ":1"}, []string{"xclip"}, r)
+
+	res, err := c.Copy("tui-abc")
+	if err != nil {
+		t.Fatalf("Copy() error = %v", err)
+	}
+	if !res.Confirmed {
+		t.Error("Confirmed = false; a clean exit from xclip is a real acknowledgement")
+	}
+}
+
+func TestCopyFallsBackToOSC52WhenThereIsNoDisplay(t *testing.T) {
+	r := &recorder{}
+	tty := &fakeTTY{}
+	c := newTestCopierWithTTY(map[string]string{}, []string{"xclip"}, r, tty)
+
+	res, err := c.Copy("tui-abc")
+	if err != nil {
+		t.Fatalf("Copy() error = %v", err)
+	}
+	if res.Helper != "OSC 52" {
+		t.Errorf("Helper = %q, want OSC 52", res.Helper)
+	}
+	if res.Confirmed {
+		t.Error("Confirmed = true; the OSC 52 fallback cannot be observed and must not claim success")
+	}
+	if len(tty.writes) != 1 {
+		t.Errorf("writes = %d, want the sequence sent to the terminal", len(tty.writes))
+	}
+}
+
+func TestCopyInHelperModeDoesNotReachForTheTerminal(t *testing.T) {
+	r := &recorder{}
+	tty := &fakeTTY{}
+	c := newTestCopierWithTTY(map[string]string{"BD_TUI_CLIPBOARD": "helper"}, []string{"xclip"}, r, tty)
+
+	if _, err := c.Copy("tui-abc"); err == nil {
+		t.Fatal("Copy() error = nil, want the helper failure to stand")
+	}
+	if len(tty.writes) != 0 {
+		t.Errorf("wrote %d times, want no OSC 52 fallback in helper mode", len(tty.writes))
+	}
+}
+
+// The motivating case: an SSH session onto a workstation that has a display of
+// its own. xclip would succeed and put the text on a clipboard nobody is
+// looking at, so osc52 mode must skip it outright rather than fall back to it.
+func TestCopyInOSC52ModeSkipsTheHelperEvenWithADisplay(t *testing.T) {
+	r := &recorder{}
+	tty := &fakeTTY{}
+	c := newTestCopierWithTTY(map[string]string{
+		"BD_TUI_CLIPBOARD": "osc52",
+		"DISPLAY":          ":0",
+	}, []string{"xclip"}, r, tty)
+
+	res, err := c.Copy("tui-abc")
+	if err != nil {
+		t.Fatalf("Copy() error = %v", err)
+	}
+	if got := r.callsTo("xclip"); len(got) != 0 {
+		t.Errorf("ran %+v, want the local display helper skipped", got)
+	}
+	if res.Confirmed {
+		t.Error("Confirmed = true, want false")
+	}
+	if len(tty.writes) != 1 {
+		t.Errorf("writes = %d, want the sequence sent", len(tty.writes))
+	}
+}
+
+func TestCopyReportsBothFailuresWhenNeitherRouteWorks(t *testing.T) {
+	r := &recorder{}
+	c := newTestCopier(map[string]string{}, []string{"xclip"}, r) // no display, no terminal
+
+	_, err := c.Copy("tui-abc")
+	if err == nil {
+		t.Fatal("Copy() error = nil, want a failure")
+	}
+	if !strings.Contains(err.Error(), "DISPLAY") {
+		t.Errorf("error = %q, want the helper diagnosis to lead", err)
+	}
+	if !strings.Contains(err.Error(), "OSC 52") {
+		t.Errorf("error = %q, want it to say the OSC 52 fallback was tried too", err)
+	}
+}
+
+func TestCopyRejectsAnUnreadableModeSetting(t *testing.T) {
+	r := &recorder{}
+	c := newTestCopier(map[string]string{"BD_TUI_CLIPBOARD": "osc-52", "DISPLAY": ":1"},
+		[]string{"xclip"}, r)
+
+	_, err := c.Copy("tui-abc")
+	if err == nil {
+		t.Fatal("Copy() error = nil; a misspelled setting must not silently mean auto")
+	}
+	if len(r.calls) != 0 {
+		t.Errorf("ran %+v, want nothing attempted with an unreadable setting", r.calls)
+	}
+}
+
+func TestCopyRejectsAnUnreadableTerminatorSetting(t *testing.T) {
+	r := &recorder{}
+	tty := &fakeTTY{}
+	c := newTestCopierWithTTY(map[string]string{
+		"BD_TUI_CLIPBOARD":        "osc52",
+		"BD_TUI_OSC52_TERMINATOR": "escape",
+	}, nil, r, tty)
+
+	if _, err := c.Copy("tui-abc"); err == nil {
+		t.Fatal("Copy() error = nil, want the bad terminator rejected")
+	}
+	if len(tty.writes) != 0 {
+		t.Errorf("wrote %d times, want nothing sent", len(tty.writes))
 	}
 }
 

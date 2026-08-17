@@ -210,6 +210,9 @@ func newTUI(opts tuiOptions) (*tui, error) {
 	errorMsg := func(msg string) string {
 		return fmt.Sprintf("[%s]%s[-]", formatting.GetErrorColor(), msg)
 	}
+	warningMsg := func(msg string) string {
+		return fmt.Sprintf("[%s]%s[-]", formatting.GetWarningColor(), msg)
+	}
 	_ = func(msg string) string { // emphasisMsg - reserved for future use
 		return fmt.Sprintf("[%s]%s[-]", formatting.GetEmphasisColor(), msg)
 	}
@@ -322,7 +325,12 @@ func newTUI(opts tuiOptions) (*tui, error) {
 	clip := clipboard.New()
 
 	// copyToClipboard copies text and reports the outcome in the status bar.
-	// description is the success phrase, e.g. "tui-abc to clipboard".
+	// description is the outcome phrase, e.g. "tui-abc to clipboard".
+	//
+	// There are three outcomes, not two. A display helper acknowledges the copy,
+	// so a checkmark is earned. The OSC 52 route hands the sequence to the
+	// terminal and hears nothing back, so it gets an arrow and the word
+	// unverified: the text has probably arrived, but nothing here saw it.
 	copyToClipboard := func(text, description string) {
 		res, err := clip.Copy(text)
 		if err != nil {
@@ -332,8 +340,14 @@ func newTUI(opts tuiOptions) (*tui, error) {
 			showTemporaryStatus(errorMsg(fmt.Sprintf("Copy failed: %v", err)), statusMessageDuration)
 			return
 		}
-		log.Printf("CLIPBOARD: copied %q via %s (display recovered from tmux: %t)",
-			text, res.Helper, res.RecoveredFromTmux)
+		log.Printf("CLIPBOARD: sent %q via %s (confirmed: %t, display recovered from tmux: %t)",
+			text, res.Helper, res.Confirmed, res.RecoveredFromTmux)
+		if !res.Confirmed {
+			showTemporaryStatus(
+				warningMsg(fmt.Sprintf("→ Sent %s via %s (unverified)", description, res.Helper)),
+				statusMessageDuration)
+			return
+		}
 		showTemporaryStatus(successMsg(fmt.Sprintf("✓ Copied %s", description)), statusMessageDuration)
 	}
 

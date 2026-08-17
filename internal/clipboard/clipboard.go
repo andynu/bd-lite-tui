@@ -6,6 +6,14 @@
 // keeps the environment it was born with, so a pane created while a client was
 // attached over SSH has no DISPLAY even after the session is reattached
 // locally. tmux still knows the current value, so we ask it rather than fail.
+//
+// There are two routes to a clipboard, and they reach different machines. A
+// display helper (xclip, wl-copy) writes to the clipboard of the display server
+// on *this* host. OSC 52 (osc52.go) writes an escape sequence to the terminal,
+// which puts the text on the clipboard of the machine the user is sitting at.
+// Over SSH those are not the same clipboard, and on a host that has its own
+// display the helper will succeed while putting the text somewhere nobody can
+// reach. BD_TUI_CLIPBOARD selects between them; see Mode.
 package clipboard
 
 import (
@@ -13,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -23,14 +32,51 @@ import (
 // local and instantaneous; anything slower is wedged and must not block the UI.
 const commandTimeout = 5 * time.Second
 
-// Result describes how a successful copy was carried out. Callers use it to
-// report which helper ran and whether the display had to be recovered.
+// Result describes how a copy was carried out. Callers use it to report which
+// route ran, whether the display had to be recovered, and — the part that
+// matters for OSC 52 — whether anything actually acknowledged the write.
 type Result struct {
-	// Helper is the executable that accepted the text, e.g. "xclip".
+	// Helper names the route that took the text: the executable that accepted
+	// it, e.g. "xclip", or the OSC 52 variant that was written.
 	Helper string
 	// RecoveredFromTmux reports that the display came from the tmux session
 	// environment because the process environment had none (or had a stale one).
 	RecoveredFromTmux bool
+	// Confirmed reports that something which owns a clipboard accepted the
+	// text. A display helper exiting cleanly is such an acknowledgement; OSC 52
+	// is not, because the terminal answers nothing. When this is false the copy
+	// may well have worked, but nothing here observed it, and a caller must not
+	// report it as success.
+	Confirmed bool
+}
+
+// Mode selects which route Copy uses.
+type Mode int
+
+const (
+	// ModeAuto tries a local display helper and falls back to OSC 52.
+	ModeAuto Mode = iota
+	// ModeHelper uses only a local display helper, never OSC 52.
+	ModeHelper
+	// ModeOSC52 uses only OSC 52. This is the setting for a genuine remote
+	// session: it skips a display helper even when the remote host has a
+	// display of its own, because that display is not the user's.
+	ModeOSC52
+)
+
+// parseMode reads the BD_TUI_CLIPBOARD value. An unrecognised value is an error
+// rather than a silent fallback, so a typo does not look like a working setting.
+func parseMode(s string) (Mode, error) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "", "auto":
+		return ModeAuto, nil
+	case "helper", "xclip", "local":
+		return ModeHelper, nil
+	case "osc52", "osc", "terminal":
+		return ModeOSC52, nil
+	default:
+		return ModeAuto, fmt.Errorf("BD_TUI_CLIPBOARD=%q: want auto, helper, or osc52", s)
+	}
 }
 
 // runner executes argv with extraEnv appended to the current environment,
@@ -42,6 +88,7 @@ type Copier struct {
 	getenv   func(string) string
 	lookPath func(string) (string, error)
 	run      runner
+	openTTY  func() (io.WriteCloser, error)
 }
 
 // New returns a Copier backed by the real process environment.
@@ -50,7 +97,20 @@ func New() *Copier {
 		getenv:   os.Getenv,
 		lookPath: exec.LookPath,
 		run:      runCommand,
+		openTTY:  openControllingTTY,
 	}
+}
+
+// mode reads the configured route.
+func (c *Copier) mode() (Mode, error) { return parseMode(c.getenv("BD_TUI_CLIPBOARD")) }
+
+// osc52 builds the OSC 52 sender from the same injected dependencies.
+func (c *Copier) osc52() (*osc52Sender, error) {
+	t, err := parseTerminator(c.getenv("BD_TUI_OSC52_TERMINATOR"))
+	if err != nil {
+		return nil, err
+	}
+	return &osc52Sender{getenv: c.getenv, run: c.run, openTTY: c.openTTY, terminator: t}, nil
 }
 
 // display is the environment a clipboard helper needs to reach the display server.
@@ -80,11 +140,48 @@ func (d display) env() []string {
 
 // Copy writes text to the system clipboard.
 //
+// In the default auto mode a local display helper is tried first and OSC 52
+// picks up what it drops, so a host with no display still copies. Check
+// Result.Confirmed before telling the user it worked: the OSC 52 route cannot
+// be observed from here.
+func (c *Copier) Copy(text string) (Result, error) {
+	mode, err := c.mode()
+	if err != nil {
+		return Result{}, err
+	}
+
+	if mode == ModeOSC52 {
+		return c.copyViaTerminal(text)
+	}
+
+	res, helperErr := c.copyViaHelper(text)
+	if helperErr == nil || mode == ModeHelper {
+		return res, helperErr
+	}
+
+	res, oscErr := c.copyViaTerminal(text)
+	if oscErr == nil {
+		return res, nil
+	}
+	// The helper failure is the one the user can usually act on, so it leads.
+	return Result{}, fmt.Errorf("%w (OSC 52 fallback also failed: %v)", helperErr, oscErr)
+}
+
+func (c *Copier) copyViaTerminal(text string) (Result, error) {
+	sender, err := c.osc52()
+	if err != nil {
+		return Result{}, err
+	}
+	return sender.send(text)
+}
+
+// copyViaHelper runs a local display helper.
+//
 // If the process has no display and we are inside tmux, the display is
 // recovered from the tmux session environment. If a copy fails with the
 // process display, it is retried once with tmux's, which covers a pane
 // holding a DISPLAY value that has since gone stale.
-func (c *Copier) Copy(text string) (Result, error) {
+func (c *Copier) copyViaHelper(text string) (Result, error) {
 	d := c.resolveDisplay()
 
 	res, err := c.copyWith(d, text)
@@ -111,7 +208,8 @@ func (c *Copier) copyWith(d display, text string) (Result, error) {
 	if _, stderr, runErr := c.run(argv, d.env(), text); runErr != nil {
 		return Result{}, helperError(argv[0], stderr, runErr)
 	}
-	return Result{Helper: argv[0], RecoveredFromTmux: d.fromTmux}, nil
+	// The helper owns the selection now, so a clean exit is a real acknowledgement.
+	return Result{Helper: argv[0], RecoveredFromTmux: d.fromTmux, Confirmed: true}, nil
 }
 
 // resolveDisplay reads the display from the process environment, falling back

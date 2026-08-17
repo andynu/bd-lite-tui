@@ -87,6 +87,35 @@ func TestCopyEndToEndRecoversDisplayInPaneWithoutOne(t *testing.T) {
 	}
 }
 
+// TestOSC52ManualProbe emits a real OSC 52 sequence to the real terminal and
+// asserts nothing about the clipboard, because nothing here can observe it. The
+// terminal sends no acknowledgement, so the only way to know whether it worked
+// is for a human to paste. Run it from an interactive shell:
+//
+//	BD_TUI_CLIPBOARD_MANUAL=1 go test ./internal/clipboard/ -run OSC52ManualProbe -v
+//
+// then paste. If the marker comes back, the OSC 52 route works on this
+// terminal; if it does not, it does not. A failure here means the sequence
+// could not be sent at all, which is a different and weaker claim.
+func TestOSC52ManualProbe(t *testing.T) {
+	if os.Getenv("BD_TUI_CLIPBOARD_MANUAL") == "" {
+		t.Skip("set BD_TUI_CLIPBOARD_MANUAL=1 and run from a terminal (replaces the system clipboard)")
+	}
+
+	c := New()
+	marker := fmt.Sprintf("bd-tui-osc52-%d", time.Now().UnixNano())
+
+	res, err := c.copyViaTerminal(marker)
+	if err != nil {
+		t.Fatalf("could not send the sequence: %v", err)
+	}
+	if res.Confirmed {
+		t.Fatal("Confirmed = true; OSC 52 has no acknowledgement, so this must never be set")
+	}
+	t.Logf("sent %q via %s. Nothing here can verify it arrived.", marker, res.Helper)
+	t.Logf("Paste now. If you get %q the route works; otherwise it does not.", marker)
+}
+
 // Outside tmux with no display there is nothing to recover, so the error must
 // say so plainly instead of surfacing an exit code.
 func TestCopyEndToEndWithoutDisplayReportsWhy(t *testing.T) {
