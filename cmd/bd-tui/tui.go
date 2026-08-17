@@ -240,12 +240,14 @@ func newTUI(opts tuiOptions) (*tui, error) {
 		return fmt.Sprintf("Issues [%s]%s (t:%s)", mode, posStr, toggle)
 	}
 
+	// The .beads path is shortened once: it never changes, and at full length it
+	// filled the status line on its own and pushed the layout and focus
+	// indicators off the right edge (tui-7j4u).
+	homeDir, _ := os.UserHomeDir()
+	beadsLabel := statusLocation(opts.BeadsDir, homeDir)
+
 	// Helper function to generate status bar text
 	getStatusBarText := func() string {
-		mouseStr := "OFF"
-		if mouseEnabled {
-			mouseStr = "ON"
-		}
 		focusStr := "List"
 		if detailPanelFocused {
 			focusStr = "Details"
@@ -257,14 +259,9 @@ func newTUI(opts tuiOptions) (*tui, error) {
 			visibleCount += len(appState.GetClosedIssues())
 		}
 
-		filterText := ""
+		filters := ""
 		if appState.HasActiveFilters() {
-			filterText = fmt.Sprintf(" [Filters: %s]", appState.GetActiveFilters())
-		}
-
-		closedText := ""
-		if showClosedIssues {
-			closedText = " [Showing Closed]"
+			filters = appState.GetActiveFilters()
 		}
 
 		// A trailing * means the layout is pinned rather than resolved from width.
@@ -273,9 +270,16 @@ func newTUI(opts tuiOptions) (*tui, error) {
 			layoutStr += "*"
 		}
 
-		emphasisColor := formatting.GetEmphasisColor()
-		return fmt.Sprintf("[%s]Beads TUI[-] - %s (%d issues)%s%s [%s] [Mouse: %s] [Focus: %s] [? help | v layout]",
-			emphasisColor, opts.BeadsDir, visibleCount, filterText, closedText, layoutStr, mouseStr, focusStr)
+		return formatStatusBar(statusBarFields{
+			EmphasisColor: formatting.GetEmphasisColor(),
+			Location:      beadsLabel,
+			IssueCount:    visibleCount,
+			Focus:         focusStr,
+			Layout:        layoutStr,
+			Filters:       filters,
+			ShowingClosed: showClosedIssues,
+			MouseEnabled:  mouseEnabled,
+		})
 	}
 
 	// Helper function to populate issue list from state

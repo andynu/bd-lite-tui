@@ -165,6 +165,7 @@ bd-lite-tui/
 │   ├── bd-tui/          # Main application
 │   │   ├── main.go      # Flags, config, theme, logging, signals only
 │   │   ├── tui.go       # newTUI: widgets, key bindings, refresh plumbing
+│   │   ├── status_bar.go    # Status line assembly and the .beads path label
 │   │   ├── bd_helpers.go    # execBd / execBdJSON shell-outs to bd
 │   │   ├── dialogs.go       # DialogHelpers struct wiring the dialogs
 │   │   └── dialog_*.go      # One file per modal (create, edit, close, ...)
@@ -295,6 +296,11 @@ go through `internal/clipboard`, which shells out to xclip/pbcopy/clip.
 - `tui.go`: `newTUI` builds the whole app from a `tuiOptions` struct — status
   bar, issue list, detail panel, `app.SetInputCapture` key bindings, the file
   watcher, and the refresh plumbing — without starting the event loop.
+- `status_bar.go`: `formatStatusBar` assembles the status line and
+  `statusLocation` shortens the `.beads` path to a label. Both are pure, so the
+  field order is a unit test rather than a screenshot. Fields render most useful
+  first (focus, layout, filters) because tview clips the tail of the line on a
+  narrow terminal.
 - `dialogs.go` + `dialog_*.go`: the modal dialogs, one file each.
 - `bd_helpers.go`: `execBd`/`execBdJSON`, the only place that shells out to `bd`.
   Tests swap the `execBdJSON` package var.

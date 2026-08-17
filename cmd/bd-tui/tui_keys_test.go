@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -206,6 +207,34 @@ func TestFocus_TabIntoDetailAndEscapeBack(t *testing.T) {
 	h.key(tcell.KeyEscape)
 	if status := h.statusText(); !strings.Contains(status, "Press ESC again to quit") {
 		t.Fatalf("a single ESC in the list should arm the quit hint, got %q", status)
+	}
+}
+
+// The focus indicator reaches the screen on a narrow terminal. It used to sit
+// behind the absolute .beads path, which filled the line on its own and left
+// everything after "(N issues)" clipped at the right edge (tui-7j4u).
+//
+// 100 columns is a split layout and 80 is the paged one, where the status bar
+// is the only signal for which of the two panels is mounted.
+func TestStatusBar_NarrowScreenStillShowsFocus(t *testing.T) {
+	for _, width := range []int{80, 100} {
+		t.Run(fmt.Sprintf("%dcols", width), func(t *testing.T) {
+			h := newHarness(t, basicIssues(), withScreenSize(width, 24))
+
+			line := rowContaining(t, h, "Beads TUI")
+			if strings.Contains(line, h.beadsDir) {
+				t.Errorf("status bar spends the line on the absolute .beads path: %q", line)
+			}
+			if !strings.Contains(line, "[Focus: List]") {
+				t.Errorf("focus indicator did not reach the screen at %d columns: %q", width, line)
+			}
+
+			h.key(tcell.KeyTab)
+			line = rowContaining(t, h, "Beads TUI")
+			if !strings.Contains(line, "[Focus: Details]") {
+				t.Errorf("focus indicator did not follow Tab at %d columns: %q", width, line)
+			}
+		})
 	}
 }
 
