@@ -163,13 +163,19 @@ func (h *DialogHelpers) ShowQuickFilter() {
 		h.App.SetFocus(h.IssueList)
 	})
 
-	// Add Enter key handler to apply filter
+	// Enter in the filter field applies, so filtering is one keystroke rather
+	// than a tab to the button. tview dispatches key events from the root down,
+	// so this capture runs before the focused child's: a focused button would
+	// otherwise never see its own Enter and "Clear All" would apply instead.
 	form.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		if event.Key() == tcell.KeyEnter {
-			applyQuickFilter()
-			return nil
+		if event.Key() != tcell.KeyEnter {
+			return event
 		}
-		return event
+		if _, button := form.GetFocusedItemIndex(); button >= 0 {
+			return event
+		}
+		applyQuickFilter()
+		return nil
 	})
 
 	// Create modal (centered)

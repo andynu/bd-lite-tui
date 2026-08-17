@@ -35,7 +35,9 @@ func (h *DialogHelpers) ShowCloseIssueDialog() {
 		reason = text
 	})
 
-	form.AddButton("Close Issue", func() {
+	// closeIssue runs the bd close and reports the outcome. The button and the
+	// Enter key share it so the two paths cannot drift apart.
+	closeIssue := func() {
 		issueID := issue.ID // Capture before potential refresh
 		args := []string{"close", issueID}
 		if reason != "" {
@@ -46,14 +48,16 @@ func (h *DialogHelpers) ShowCloseIssueDialog() {
 		if err != nil {
 			log.Printf("BD COMMAND ERROR: Close failed: %v", err)
 			h.StatusBar.SetText(fmt.Sprintf("[%s]Error closing issue: %v[-]", formatting.GetErrorColor(), err))
-		} else {
-			log.Printf("BD COMMAND: Issue closed successfully: %s", closedIssue.ID)
-			h.StatusBar.SetText(fmt.Sprintf("[%s]✓ Closed [%s]%s[-][-]", formatting.GetSuccessColor(), formatting.GetAccentColor(), closedIssue.ID))
-			h.Pages.RemovePage("close_issue_dialog")
-			h.App.SetFocus(h.IssueList)
-			h.ScheduleRefresh(issueID)
+			return
 		}
-	})
+		log.Printf("BD COMMAND: Issue closed successfully: %s", closedIssue.ID)
+		h.StatusBar.SetText(fmt.Sprintf("[%s]✓ Closed [%s]%s[-][-]", formatting.GetSuccessColor(), formatting.GetAccentColor(), closedIssue.ID))
+		h.Pages.RemovePage("close_issue_dialog")
+		h.App.SetFocus(h.IssueList)
+		h.ScheduleRefresh(issueID)
+	}
+
+	form.AddButton("Close Issue", closeIssue)
 	form.AddButton("Cancel", func() {
 		h.Pages.RemovePage("close_issue_dialog")
 		h.App.SetFocus(h.IssueList)
@@ -65,29 +69,19 @@ func (h *DialogHelpers) ShowCloseIssueDialog() {
 		h.App.SetFocus(h.IssueList)
 	})
 
-	// Add Enter key handler to close
+	// Enter in the reason field submits, which is the one keystroke the title
+	// advertises. tview dispatches key events from the root down, so this
+	// capture runs before the focused child's: a focused button would otherwise
+	// never see its own Enter and "Cancel" would close the issue.
 	form.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		if event.Key() == tcell.KeyEnter {
-			issueID := issue.ID
-			args := []string{"close", issueID}
-			if reason != "" {
-				args = append(args, "--reason", reason)
-			}
-			log.Printf("BD COMMAND: Closing issue (Enter): bd %s", strings.Join(args, " "))
-			closedIssue, err := execBdJSONIssue(args...)
-			if err != nil {
-				log.Printf("BD COMMAND ERROR: Close failed: %v", err)
-				h.StatusBar.SetText(fmt.Sprintf("[%s]Error closing issue: %v[-]", formatting.GetErrorColor(), err))
-			} else {
-				log.Printf("BD COMMAND: Issue closed successfully: %s", closedIssue.ID)
-				h.StatusBar.SetText(fmt.Sprintf("[%s]✓ Closed [%s]%s[-][-]", formatting.GetSuccessColor(), formatting.GetAccentColor(), closedIssue.ID))
-				h.Pages.RemovePage("close_issue_dialog")
-				h.App.SetFocus(h.IssueList)
-				h.ScheduleRefresh(issueID)
-			}
-			return nil
+		if event.Key() != tcell.KeyEnter {
+			return event
 		}
-		return event
+		if _, button := form.GetFocusedItemIndex(); button >= 0 {
+			return event
+		}
+		closeIssue()
+		return nil
 	})
 
 	// Create modal (centered)

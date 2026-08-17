@@ -1,6 +1,7 @@
 package main
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -178,6 +179,118 @@ func TestQuickFilter_EmptyQueryClearsTheFilter(t *testing.T) {
 	}
 	if text := h.statusText(); strings.Contains(text, "[Filters:") {
 		t.Errorf("status bar still shows a filter: %q", text)
+	}
+}
+
+// Enter is the form-wide submit only while the typing field has focus. Tabbing
+// to "Clear All" and pressing Enter must clear, not apply what was typed
+// (tui-1gf3).
+func TestQuickFilter_ClearAllButtonDiscardsTheQuery(t *testing.T) {
+	h := newHarness(t, basicIssues())
+
+	h.typeRunes("f")
+	h.typeRunes("p1")
+	h.pressButton("Clear All")
+
+	if got := h.frontPage(); got != "main" {
+		t.Fatalf("Clear All left %q up, want main", got)
+	}
+
+	var hasFilters bool
+	h.read(func() { hasFilters = h.tui.state.HasActiveFilters() })
+	if hasFilters {
+		var active string
+		h.read(func() { active = h.tui.state.GetActiveFilters() })
+		t.Fatalf("Clear All applied the typed query instead of clearing: %q", active)
+	}
+	if ids := h.issueIDs(); len(ids) != 3 {
+		t.Fatalf("list is %v, want all three open issues", ids)
+	}
+}
+
+// Same for "Cancel (ESC)": Enter on it dismisses the dialog and leaves the
+// existing filter state untouched (tui-1gf3).
+func TestQuickFilter_CancelButtonKeepsTheExistingFilters(t *testing.T) {
+	h := newHarness(t, basicIssues())
+
+	// Establish a filter the cancelled dialog must not disturb.
+	h.typeRunes("f")
+	h.typeRunes("p3")
+	h.key(tcell.KeyEnter)
+	if ids := h.issueIDs(); len(ids) != 1 || ids[0] != "tui-ccc" {
+		t.Fatalf("test setup: filtered list is %v, want just tui-ccc", ids)
+	}
+
+	h.typeRunes("f")
+	h.typeRunes("p1")
+	h.pressButton("Cancel")
+
+	if got := h.frontPage(); got != "main" {
+		t.Fatalf("Cancel left %q up, want main", got)
+	}
+
+	var active string
+	h.read(func() { active = h.tui.state.GetActiveFilters() })
+	if active != "Priority: P3" {
+		t.Fatalf("filter is %q, want the pre-existing %q", active, "Priority: P3")
+	}
+	if ids := h.issueIDs(); len(ids) != 1 || ids[0] != "tui-ccc" {
+		t.Fatalf("list is %v, want the P3 filter still in force", ids)
+	}
+}
+
+// The close dialog submits on Enter from the reason field, which is the one
+// keystroke path the title advertises.
+func TestCloseDialog_EnterInTheReasonFieldCloses(t *testing.T) {
+	h := newHarness(t, basicIssues())
+	h.selectIssue("tui-aaa")
+
+	h.typeRunes("x")
+	h.typeRunes("done")
+	h.key(tcell.KeyEnter)
+
+	calls := h.calls()
+	if len(calls) != 1 {
+		t.Fatalf("expected one bd invocation, got %v", calls)
+	}
+	if want := []string{"close", "tui-aaa", "--reason", "done"}; !reflect.DeepEqual(calls[0].Args, want) {
+		t.Fatalf("bd called with %v, want %v", calls[0].Args, want)
+	}
+}
+
+// Enter on the close dialog's Cancel button must cancel. The form-wide capture
+// used to close the issue no matter which button held focus (tui-1gf3).
+func TestCloseDialog_CancelButtonDoesNotCloseTheIssue(t *testing.T) {
+	h := newHarness(t, basicIssues())
+	h.selectIssue("tui-aaa")
+
+	h.typeRunes("x")
+	h.typeRunes("oops")
+	h.pressButton("Cancel")
+
+	if got := h.frontPage(); got != "main" {
+		t.Fatalf("Cancel left %q up, want main", got)
+	}
+	if calls := h.calls(); len(calls) != 0 {
+		t.Fatalf("cancelling ran bd: %v", calls)
+	}
+}
+
+// The "Close Issue" button still works when Enter reaches it directly.
+func TestCloseDialog_CloseButtonClosesTheIssue(t *testing.T) {
+	h := newHarness(t, basicIssues())
+	h.selectIssue("tui-aaa")
+
+	h.typeRunes("x")
+	h.typeRunes("shipped")
+	h.pressButton("Close Issue")
+
+	calls := h.calls()
+	if len(calls) != 1 {
+		t.Fatalf("expected one bd invocation, got %v", calls)
+	}
+	if want := []string{"close", "tui-aaa", "--reason", "shipped"}; !reflect.DeepEqual(calls[0].Args, want) {
+		t.Fatalf("bd called with %v, want %v", calls[0].Args, want)
 	}
 }
 
