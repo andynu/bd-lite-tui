@@ -24,9 +24,13 @@ func (h *DialogHelpers) ShowHelpScreen() {
   k / ↑       Move up
   gg          Jump to top
   G           Jump to bottom
+  Space       Page down (wraps to the top at the end)
+  Ctrl-f      Page down
+  Ctrl-b      Page up
   Tab         Focus detail panel for scrolling
   Enter       Focus detail panel (when on issue)
   ESC         Return focus to issue list
+  ESC ESC     Quit (twice within a second, from the list)
 
 [cyan::b]Search[-::-]
   /           Start search mode (matches issue ID, title, labels)
@@ -40,7 +44,7 @@ func (h *DialogHelpers) ShowHelpScreen() {
 
 [cyan::b]Quick Actions[-::-]
   0-4         Set priority (P0=critical, P1=high, P2=normal, P3=low, P4=lowest)
-  s           Cycle status (open → in_progress → blocked → closed → open)
+  s           Start a status change (see Two-Character Shortcuts)
   R           Rename issue (edit title)
   a           Create new issue (vim-style "add")
   c           Add comment to selected issue
@@ -55,12 +59,15 @@ func (h *DialogHelpers) ShowHelpScreen() {
   B           Copy git branch name to clipboard
 
 [cyan::b]Two-Character Shortcuts[-::-]
-  So          Set status to open
-  Si          Set status to in_progress
-  Sb          Set status to blocked
-  Sc          Set status to closed
+  so          Set status to open
+  si          Set status to in_progress
+  sb          Set status to blocked
+  sc          Set status to closed
 
-  Si also claims the issue for you (git user.name) when it has
+  The s prefix is lowercase, and expires after 2 seconds.
+  (Uppercase S opens the statistics dashboard.)
+
+  si also claims the issue for you (git user.name) when it has
   no assignee. An issue someone else holds is never reassigned.
 
 [cyan::b]Assignees[-::-]
@@ -85,7 +92,6 @@ func (h *DialogHelpers) ShowHelpScreen() {
   o           Collapse/expand node in tree view (vim-style fold)
   O           Expand all nodes in tree view
   Z           Collapse all nodes in tree view
-  T           Cycle to next theme (live theme switching)
   C           Toggle showing closed issues in list view
   p           Toggle issue ID prefix (tui-abc vs abc)
   f           Quick filter (type: p1 bug, feature, etc.)
@@ -122,12 +128,14 @@ func (h *DialogHelpers) ShowHelpScreen() {
   --debug             Enable debug logging
 
 [cyan::b]Themes[-::-]
-  Available themes: default, gruvbox-dark, gruvbox-light, nord,
-  solarized-dark, solarized-light, dracula, tokyo-night,
-  catppuccin-mocha, catppuccin-latte
+  Available themes: default, gruvbox-dark (the default), gruvbox-light,
+  nord, solarized-dark, solarized-light, dracula, tokyo-night,
+  catppuccin-mocha, catppuccin-latte, colorblind, high-contrast
 
-  Set via environment variable:
+  There is no theme-switching key. Pick one, highest priority first:
+    bd-tui --theme gruvbox-dark
     export BEADS_THEME=gruvbox-dark
+    "theme" in ~/.bd-tui/config.json
 
 [cyan::b]Status Icons[-::-]
   ●           Open/Ready

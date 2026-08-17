@@ -37,14 +37,14 @@ bd ready
 # Show all issues
 bd list
 
-# View dependency tree
-bd dep tree
+# View dependency tree for one issue (the id is required)
+bd dep tree <issue-id>
 
-# Show issue details (includes comments)
+# Show issue details (includes comments; there is no `bd comments`)
 bd show <issue-id>
 
-# Create new issue
-bd add "Issue title" -p 1 -t feature
+# Create new issue (`bd new` is an alias; there is no `bd add`)
+bd create "Issue title" -p 1 -t feature
 
 # Add a comment to an issue
 bd comment <issue-id> "Your comment text"
@@ -63,6 +63,12 @@ bd update <issue-id> --labels "bug,ui,urgent"
 ```
 
 **Note:** bd-lite writes directly to `.beads/issues.jsonl`. Changes are picked up by the TUI's file watcher automatically.
+
+**The whole bd-lite command set** is `cleanup`, `close`, `comment`, `create`
+(alias `new`), `dep` (`add`/`remove`/`tree`), `init`, `list`, `ready`, `show`,
+`update`. Anything else you remember from full beads — `add`, `comments`,
+`label`, `export`, `sync`, `status`, `search` — does not exist here. Check with
+`bd <cmd> --help` before putting a command in docs or in code.
 
 ### Debug Logging
 
@@ -93,14 +99,14 @@ The TUI includes comprehensive diagnostic logging to help diagnose hangs and per
 
 **Example log output:**
 ```
-2025/11/14 09:45:23.123456 main.go:42: === bd-tui started in debug mode ===
-2025/11/14 09:45:23.234567 main.go:53: Finding .beads directory
-2025/11/14 09:45:23.345678 main.go:301: Setting up file watcher on: /path/.beads/issues.jsonl
-2025/11/14 09:45:23.456789 main.go:315: WATCHER: File watcher started successfully
-2025/11/14 09:45:30.123456 main.go:412: KEY EVENT: key=Rune rune='j' mod=0 searchMode=false detailFocus=false
-2025/11/14 09:45:31.234567 main.go:412: KEY EVENT: key=Rune rune='1' mod=0 searchMode=false detailFocus=false
-2025/11/14 09:45:31.345678 main.go:577: BD COMMAND: Executing priority update: bd update tui-123 --priority 1
-2025/11/14 09:45:31.456789 main.go:583: BD COMMAND: Priority update successful for tui-123 -> P1
+2025/11/14 09:45:23.123456 main.go:78: === bd-tui started in debug mode ===
+2025/11/14 09:45:23.234567 main.go:89: Finding .beads directory
+2025/11/14 09:45:23.345678 tui.go:538: Setting up file watcher on: /path/.beads/issues.jsonl
+2025/11/14 09:45:23.456789 tui.go:552: WATCHER: File watcher started successfully
+2025/11/14 09:45:30.123456 tui.go:917: KEY EVENT: key=Rune rune='j' mod=0 searchMode=false detailFocus=false
+2025/11/14 09:45:31.234567 tui.go:917: KEY EVENT: key=Rune rune='1' mod=0 searchMode=false detailFocus=false
+2025/11/14 09:45:31.345678 tui.go:1396: BD COMMAND: Executing priority update: bd update tui-123 --priority 1
+2025/11/14 09:45:31.456789 tui.go:1402: BD COMMAND: Priority update successful for tui-123 -> P1
 ```
 
 ### Testing Considerations
@@ -109,8 +115,8 @@ The TUI includes comprehensive diagnostic logging to help diagnose hangs and per
 
 ```bash
 mkdir /tmp/test-beads && cd /tmp/test-beads
-bd init --quiet --prefix test
-bd add "Test issue" -p 1
+bd init --prefix test
+bd create "Test issue" -p 1
 ```
 
 #### TUI integration tests
@@ -155,20 +161,36 @@ withPriority(...), withBlockedBy(...), ...)`.
 
 ```
 bd-lite-tui/
-├── cmd/bd-tui/       # Main application entry point
-│   └── main.go          # TUI app, layout, key bindings
+├── cmd/
+│   ├── bd-tui/          # Main application
+│   │   ├── main.go      # Flags, config, theme, logging, signals only
+│   │   ├── tui.go       # newTUI: widgets, key bindings, refresh plumbing
+│   │   ├── bd_helpers.go    # execBd / execBdJSON shell-outs to bd
+│   │   ├── dialogs.go       # DialogHelpers struct wiring the dialogs
+│   │   └── dialog_*.go      # One file per modal (create, edit, close, ...)
+│   └── list-themes/     # Prints the registered themes
 ├── internal/
+│   ├── app/             # .beads discovery and app context
+│   ├── clipboard/       # xclip/pbcopy/clip wrapper
+│   ├── config/          # ~/.bd-tui/config.json and per-repo collapse state
+│   ├── formatting/      # Colors, status glyphs, detail-panel rendering
+│   ├── identity/        # Who the TUI acts as (git user.name)
+│   ├── layout/          # Columns/Rows/Paged decision from terminal width
 │   ├── parser/          # JSONL parser for bd-lite issues
 │   │   ├── types.go     # Issue, Dependency, Comment types
 │   │   └── parser.go    # Line-by-line JSONL reader
-│   ├── state/           # Application state management
-│   │   └── state.go     # Issue categorization logic
-│   ├── storage/         # JSONL file reading
-│   │   └── jsonl.go     # JSONLReader for issues.jsonl
-│   └── watcher/         # Filesystem monitoring
-│       └── watcher.go   # fsnotify wrapper with debouncing
+│   ├── state/           # Issue categorization, filtering, tree building
+│   ├── storage/         # JSONLReader for issues.jsonl
+│   ├── theme/           # Built-in and TOML themes
+│   ├── ui/              # Component builders and list/tree rendering
+│   └── watcher/         # fsnotify wrapper with debouncing
 └── go.mod
 ```
+
+`main.go` is a thin entry point. Everything the TUI does lives in `tui.go` and
+the `dialog_*.go` files, so `newTUI` can be built against a tcell
+`SimulationScreen` from tests. Search `tui.go`, not `main.go`, when looking for
+behavior.
 
 ### Key Concepts
 
@@ -178,18 +200,26 @@ bd-lite-tui/
 - **Ready:** Open issues with no open blocking dependencies
 - **Blocked:** Open issues with unresolved blocking dependencies OR status="blocked"
 - **In Progress:** Issues with status="in_progress"
-- **Closed:** Issues with status="closed" (not displayed in main view)
+- **Closed:** Issues with status="closed" (hidden by default; `C` toggles them into list view)
 
 **Filesystem watching:** Uses fsnotify with 200ms debouncing to watch `.beads/issues.jsonl` for changes and refresh the UI automatically.
 
 **Vim-style navigation:** j/k for up/down, q to quit. Details auto-show on navigation (tui-p62).
 
-**Mouse mode disabled:** Mouse is intentionally disabled to allow terminal text selection (see cmd/bd-tui/main.go:212).
+**Mouse mode enabled by default:** `app.EnableMouse(true)` at startup; `m`
+toggles it off when you want the terminal's own text selection back.
 
 **View modes:** The TUI supports two view modes:
 - **List View (default):** Issues grouped by status (ready/blocked/in-progress)
 - **Tree View:** Issues displayed as dependency hierarchy with ASCII tree characters
 - Toggle between modes with the 't' key
+
+**Layout modes:** `internal/layout` picks Columns, Rows, or Paged from the
+terminal width. Below `layout.NarrowThreshold` (90 columns) the result is always
+Paged — the list and the detail each take the whole screen and Tab/Enter/ESC
+switch between them — even against an explicit pin, because neither split leaves
+a readable column. `v` cycles the pin auto → Columns → Rows → Paged → auto; a
+pinned mode is marked with `*` in the status bar.
 
 **Panel focus system:** The TUI has two focusable panels (issue list and detail panel):
 - **Default:** Issue list is focused (for navigation)
@@ -197,10 +227,18 @@ bd-lite-tui/
 - **ESC:** Return focus to issue list
 - **Visual indicators:** Focused panel has yellow border and updated title text
 - **Status bar:** Shows current focus (List or Details)
+- In Paged mode focus also decides which panel is mounted, so Tab/Enter is how
+  you turn the page
 
 **Quick issue updates:** Issues can be updated directly from the TUI without leaving the interface:
-- **Priority changes:** Press `0`-`4` to instantly set priority (P0=critical, P1=high, P2=normal, P3=low, P4=lowest)
-- **Status cycling:** Press `s` to cycle through statuses (open → in_progress → blocked → closed → open)
+- **Priority changes:** Press `0`-`4` to instantly set priority (P0=critical, P1=high, P2=medium, P3=low, P4=backlog)
+- **Status chord:** Press `s`, then one of `o`/`i`/`b`/`c` for open, in_progress,
+  blocked, closed. The chord resets itself after 2 seconds. (`s` alone no longer
+  cycles status, and the prefix is lowercase — uppercase `S` opens the stats
+  dashboard.)
+- **Auto-claim on `si`:** moving an issue to in_progress also passes
+  `--assignee <git user.name>` in the same `bd update` call, but only when the
+  issue has no assignee. An issue someone else holds is never reassigned.
 - **Immediate feedback:** Confirmation message shown in status bar with green checkmark
 - **Auto-refresh:** Issue list automatically refreshes 500ms after update to show changes
 - **No dialogs:** Updates are instant with single keypress, no confirmation needed
@@ -211,236 +249,55 @@ bd-lite-tui/
 - **Parent relationship:** Optional checkbox to add as child of currently selected issue
 - **Form navigation:** Tab between fields, Enter/Ctrl-S to submit, ESC to cancel
 - **Validation:** Requires title before allowing creation
-- **Command execution:** Executes `bd add` command with form data
+- **Command execution:** Executes `bd create` (see `cmd/bd-tui/dialog_create.go`) with form data
+- **Natural language detection:** Priority and type keywords in the title
+  pre-select the matching form fields (`nldetect_test.go` covers this)
 - **Auto-refresh:** Issue list refreshes 500ms after creation to show new issue
 
-## Editing UX Design (tui-qxy.1)
+### Editing Dialogs
 
-This section documents the interaction patterns for editing issues in the TUI. The design follows vim-style conventions and reuses patterns from existing features.
+Every write goes through the `bd` CLI rather than a direct JSONL write, so
+bd-lite stays the single writer of `.beads/issues.jsonl`. Each dialog lives in
+its own `cmd/bd-tui/dialog_*.go` and is reached through the `DialogHelpers`
+struct in `dialogs.go`.
 
-### Design Principles
+| Key | Dialog | File | bd call |
+|-----|--------|------|---------|
+| `a` | Create issue | `dialog_create.go` | `bd create <title> -p <n> -t <type>` |
+| `e` | Edit fields (title, description, design, acceptance, notes, priority, type) | `dialog_edit.go` | `bd update` |
+| `R` | Rename (title only) | `dialog_rename.go` | `bd update --title` |
+| `x` | Close with optional reason | `dialog_close.go` | `bd close --reason` |
+| `X` | Reopen with optional reason | `dialog_close.go` | `bd update --status open` |
+| `c` | Add comment | `dialog_comment.go` | `bd comment` |
+| `D` | Dependencies (blocks, parent-child, related) | `dialog_dependencies.go` | `bd dep add` / `bd dep remove` |
+| `L` | Labels | `dialog_labels.go` | `bd update --labels` (whole set, not a delta) |
+| `A` | Assignee (autocompletes names already in use) | `dialog_assign.go` | `bd update --assignee` |
+| `f` | Quick filter | `dialog_filter.go` | none, client-side |
+| `S` | Stats dashboard | `dialog_stats.go` | none, client-side |
+| `?` | Help screen | `dialog_help.go` | none |
 
-1. **Consistency with existing patterns:** Follow vim-style keybindings (j/k, gg/G, etc.)
-2. **Minimal context switching:** Use $EDITOR for text fields, modal dialogs for structured data
-3. **Safe defaults:** Require explicit confirmation for destructive operations
-4. **Immediate feedback:** Show status bar messages for all operations
-5. **Integration via bd CLI:** Use `bd` commands rather than direct JSONL writes (maintains single source of truth)
+Editing is in-TUI only: the fields are tview text areas. There is no `$EDITOR`
+suspend-and-spawn path, and the modal-dialog approach replaced the original
+plan for one. If you add that, it is new work, not a resumption.
 
-### Keybinding Allocation
+While a dialog is up, `app.SetInputCapture` returns the event untouched
+(`pages.GetFrontPage() != "main"`), so the dialog owns all input and the normal
+keybindings are inert.
 
-**Current keybindings (reserved, DO NOT conflict):**
-- Navigation: `j`, `k`, `g`, `G`, `Tab`, `Enter`, `ESC`, arrows
-- Search: `/`, `n`, `N`
-- Quick updates: `0`-`4` (priority), `s` (status)
-- View controls: `t` (tree/list), `f` (filters), `m` (mouse), `r` (refresh)
-- Creation: `a` (add issue), `c` (add comment)
-- Help: `?`
-- Quit: `q`
-- Detail panel scrolling: `Ctrl-d`, `Ctrl-u`, `Ctrl-e`, `Ctrl-y`, `PageDown`, `PageUp`, `Home`, `End`
-
-**New keybindings for editing:**
-- `e` - **Edit menu** (shows modal with options: Description / Cancel)
-- `D` - **Manage dependencies** (modal dialog for adding/removing blocks and parent-child relationships)
-- `L` - **Manage labels** (modal dialog for adding/removing labels)
-- `y` - **Yank issue ID to clipboard** (vim-style, copies current issue ID)
-- `Y` - **Yank issue ID with title** (copies "tui-xyz - Issue title" format)
-
-**Existing but enhanced:**
-- `c` - Add comment (already implemented, enhancing to support $EDITOR with template)
-
-### Text Field Editing with $EDITOR
-
-**Keybinding:** `e`
-
-**Behavior:**
-1. Press `e` on a selected issue
-2. Show modal menu with options:
-   - Edit Description
-   - Cancel
-3. On selection:
-   - Write current field value to temp file (`/tmp/bd-tui-<field>-<issue-id>.md`)
-   - Pause TUI with `app.Suspend()`
-   - Spawn `$EDITOR` (fall back to `vim` if unset)
-   - Wait for editor to close
-   - Read temp file content
-   - Call `bd update <id> --description <content>`
-   - Clean up temp file
-   - Resume TUI with `app.Draw()`
-   - Show confirmation in status bar: `[green]✓ Updated description for <issue-id>[-]`
-   - Trigger refresh after 500ms (preserves selection)
-
-**Editor command:** `$EDITOR /tmp/bd-tui-description-tui-xyz.md` (or use `vim` if `$EDITOR` unset)
-
-**Error handling:**
-- If `$EDITOR` executable not found: Show error in status bar, fall back to `vim`
-- If editor exits with non-zero code: Show error, ask "Save changes anyway? (y/n)"
-- If content is empty after editing: Ask "Clear this field? (y/n)"
-- If `bd update` fails: Show error message with bd output
-
-**Template format for empty fields:**
-```markdown
-# Edit <field-name> for <issue-id>
-# Lines starting with # are ignored
-# Save and exit to update, or exit without saving to cancel
-
-<existing content here, or empty>
-```
-
-**Implementation notes:**
-- Use `os/exec` to spawn editor
-- Strip comment lines (starting with `#`) before sending to bd
-- Properly escape content for shell (use heredoc or write to temp file and pass path)
-- Preserve cursor position in detail panel after refresh
-
-### Comment Creation with $EDITOR
-
-**Keybinding:** `c` (already implemented, enhancing)
-
-**Current behavior:** Shows modal dialog with textarea
-
-**Enhanced behavior (optional improvement for consistency):**
-1. Press `c` on a selected issue
-2. Spawn `$EDITOR` with template file
-3. Read comment after editor closes
-4. Call `bd comment <id> "<comment-text>"`
-
-**Template format:**
-```markdown
-# Add comment to <issue-id> - <title>
-# Lines starting with # are ignored
-# Save and exit to post comment, or exit without saving to cancel
-
-Your comment here...
-```
-
-**Note:** This is optional - the current modal dialog implementation works well. Consider this if users prefer $EDITOR workflow.
-
-### Dependency Management Dialog
-
-**Keybinding:** `D`
-
-**Behavior:**
-1. Press `D` on a selected issue
-2. Show modal dialog with two sections:
-   - **Current dependencies** (list with remove buttons)
-   - **Add new dependency** (input field)
-
-**Dialog layout:**
-```
-┌─────────────────────────────────────────────────┐
-│         Manage Dependencies for tui-xyz         │
-├─────────────────────────────────────────────────┤
-│ Current Dependencies:                           │
-│   [x] tui-abc  [Remove]                        │
-│   [x] tui-def  [Remove]                        │
-│                                                  │
-│ Add New Dependency:                             │
-│   Issue ID: [____________]                      │
-│                                                  │
-│   [Add]  [Close]                                │
-└─────────────────────────────────────────────────┘
-```
-
-**Operations:**
-- **Add:** Call `bd dep add <issue-id> <target-id>`
-- **Remove:** Call `bd dep remove <issue-id> <target-id>`
-- Validate that target issue exists (search in current state)
-- Show error if target not found: `[red]Issue <id> not found[-]`
-- Trigger refresh after each add/remove operation
-
-**Implementation notes:**
-- Use `tview.Form` for the dialog
-- List dependencies from `issue.Dependencies`
-- Use checkboxes or list items with remove buttons
-- Add autocomplete for issue IDs (optional enhancement)
-- Show issue titles next to IDs for clarity
-
-### Label Management Dialog
-
-**Keybinding:** `L`
-
-**Behavior:**
-1. Press `L` on a selected issue
-2. Show modal dialog with current labels and add/remove interface
-
-**Dialog layout:**
-```
-┌─────────────────────────────────────────────────┐
-│         Manage Labels for tui-xyz               │
-├─────────────────────────────────────────────────┤
-│ Current Labels:                                 │
-│   [ui] [x]    [bug] [x]    [urgent] [x]        │
-│                                                  │
-│ Add Label:                                       │
-│   [____________]  [Add]                         │
-│                                                  │
-│   [Close]                                        │
-└─────────────────────────────────────────────────┘
-```
-
-**Operations:**
-- **Add/Remove:** Call `bd update <issue-id> --labels "label1,label2,..."` with the updated label set
-- Trim whitespace from label names
-- Prevent duplicate labels (check before adding)
-- Show available labels from other issues (optional autocomplete)
-
-**Implementation notes:**
-- Use `tview.Form` for the dialog
-- Display labels as chips/tags with [x] buttons
-- Input field for new label name
-- Consider color-coding labels (enhancement)
-
-### Clipboard Integration
-
-**Keybindings:** `y` (yank ID), `Y` (yank ID with title)
-
-**Behavior:**
-- Press `y` on selected issue: Copy issue ID to clipboard (e.g., `tui-xyz`)
-- Press `Y` on selected issue: Copy ID with title (e.g., `tui-xyz - Build bd-tui`)
-- Show confirmation: `[green]✓ Copied tui-xyz to clipboard[-]`
-- Clear message after 2 seconds
-
-**Use cases:**
-- Quick reference for adding dependencies
-- Pasting into commit messages
-- Sharing issue IDs in chat/docs
-
-**Implementation:**
-- Use `github.com/atotto/clipboard` library (already imported)
-- Call `clipboard.WriteAll(issue.ID)` or `clipboard.WriteAll(fmt.Sprintf("%s - %s", issue.ID, issue.Title))`
-- Handle errors gracefully (show error in status bar if clipboard unavailable)
-- Cross-platform support (Linux/xclip, macOS/pbcopy, Windows/clip)
-
-**Note:** Clipboard already works for clicking issue ID in detail panel (line 384-415), extend this to keybindings
-
-### Implementation Order
-
-1. **tui-qxy.1** (this task) - Document UX design ✓
-2. **tui-qxy.2** - Implement text field editor with $EDITOR (highest priority)
-3. **tui-qxy.3** - Enhance comment creation with $EDITOR (optional)
-4. **tui-qxy.4** - Add dependency management dialog
-5. **tui-qxy.5** - Add label management dialog
-6. **tui-qxy.7** - Add clipboard yank keybindings
-7. **tui-qxy.8** - Write comprehensive tests
-
-### Success Criteria
-
-- Users can edit all text fields without leaving TUI
-- $EDITOR integration works with common editors (vim, nano, emacs, vscode --wait)
-- TUI properly suspends/resumes without corruption
-- All bd commands execute successfully with proper error handling
-- Status bar provides clear feedback for all operations
-- Selection is preserved after updates
-- No keybinding conflicts with existing features
+Clipboard writes (`y`, `Y`, `B`, and clicking the issue ID in the detail panel)
+go through `internal/clipboard`, which shells out to xclip/pbcopy/clip.
 
 ### Package Responsibilities
 
-**`cmd/bd-tui/main.go`** - TUI application
-- tview-based UI with status bar, issue list, and detail panel
-- Vim keybindings (j/k for navigation)
-- Auto-show details on list navigation change
-- Layout: 3-pane (status bar + issue list + details)
-- Color-coded priority and status indicators
+**`cmd/bd-tui/`** - TUI application
+- `main.go`: flags (`--debug`, `--theme`, `--view`, `--issue`), config and theme
+  resolution, log file setup, signal handling. No UI code.
+- `tui.go`: `newTUI` builds the whole app from a `tuiOptions` struct — status
+  bar, issue list, detail panel, `app.SetInputCapture` key bindings, the file
+  watcher, and the refresh plumbing — without starting the event loop.
+- `dialogs.go` + `dialog_*.go`: the modal dialogs, one file each.
+- `bd_helpers.go`: `execBd`/`execBdJSON`, the only place that shells out to `bd`.
+  Tests swap the `execBdJSON` package var.
 
 **`internal/parser/`** - JSONL parsing
 - `types.go`: Domain types matching bd-lite JSONL schema (Issue, Status, IssueType, Dependency, Comment)
@@ -465,6 +322,20 @@ Your comment here...
 - `cmd/bd-tui/tui.go` calls it through the `resolveIdentity` package var, which
   tests swap so no assertion depends on the developer's git config
 
+**`internal/layout/`** - Screen arrangement
+- `Resolve(width, pin, pinned)` is a pure function, so the split decision is
+  testable without standing up a tview app
+- Below `NarrowThreshold` (90) the answer is always `Paged`, pin or no pin
+
+**`internal/formatting/`** - Presentation
+- Priority/status/type colors, status glyphs, `FormatIssueDetails` for the
+  detail panel
+
+**`internal/config/`** - Persistence outside the repo
+- `~/.bd-tui/config.json` holds the theme
+- `~/.bd-tui/collapse-<hash>.json` holds tree collapse state, keyed by a hash of
+  the `.beads` path so each repo keeps its own
+
 **`internal/watcher/`** - File monitoring
 - fsnotify wrapper with debouncing (default 200ms)
 - Triggers callback on file write/create events
@@ -481,7 +352,8 @@ Your comment here...
 6. Display TUI
 
 **Live updates:**
-1. User runs `bd` command (e.g., `bd add`, `bd update`)
+1. User runs `bd` command (e.g., `bd create`, `bd update`), or the TUI runs one
+   on their behalf
 2. bd-lite writes directly to `.beads/issues.jsonl`
 3. fsnotify detects JSONL write
 4. Watcher debounces (200ms) and triggers `refreshIssues()`
@@ -497,45 +369,46 @@ Your comment here...
 
 ### Dependency Detection Algorithm
 
-From `internal/state/state.go:62-93`:
+`State.categorizeIssues` in `internal/state/state.go`, which matches `bd ready`:
 
-```go
-// Build reverse dependency map
-for _, issue := range s.issues {
-    for _, dep := range issue.Dependencies {
-        if dep.Type == parser.DepBlocks {
-            // issue depends on dep.DependsOnID
-            // So dep.DependsOnID blocks issue
-            targetIssue := s.issuesByID[dep.DependsOnID]
-            if targetIssue != nil && targetIssue.Status != parser.StatusClosed {
-                // This issue is blocked by an open dependency
-                blockedByIssueIDs[issue.ID] = true
-            }
-        }
-    }
-}
-```
+1. Build a child→parent map from explicit parent-child dependencies, then infer
+   the rest from dotted IDs (`tui-y4h.1` is a child of `tui-y4h`) so list view
+   and tree view agree. Explicit deps win over inferred ones.
+2. First pass: mark an issue blocked when it has a `blocks` dependency on an
+   issue that is not closed.
+3. Second pass: propagate blocking down parent-child edges until nothing
+   changes, so a child of a blocked parent is blocked too.
+4. `related` and `discovered-from` dependencies never block. An explicit
+   `status: blocked` does *not* propagate to children.
+
+The result is stored in `s.effectivelyBlocked` and read back through
+`IsEffectivelyBlocked()`.
 
 An issue is "blocked" if:
 - It has status="blocked", OR
-- It has a "blocks" dependency where the blocking issue is not closed
+- It has a "blocks" dependency where the blocking issue is not closed, OR
+- Its parent is blocked by one of the above
 
 ### Tree View Algorithm
 
 The tree view visualizes issue dependencies as a hierarchical structure:
 
-**Building the tree** (from `internal/state/state.go:201-288`):
-1. Build maps of parent→children (from parent-child dependencies) and blocker→blocked (from blocks dependencies)
-2. Find root nodes: issues with no incoming parent-child or blocks dependencies
-3. Recursively build tree from roots, adding both children and blocked issues
+**Building the tree** (`State.buildDependencyTree` in `internal/state/state.go`):
+1. Build maps of parent→children (explicit parent-child deps plus dotted-ID
+   children) and blocker→blocked (from blocks dependencies)
+2. Find root nodes: epics are always roots; everything else is a root only when
+   it has no incoming parent-child or blocks dependency
+3. Recursively build tree from roots (epics first), adding both children and blocked issues
 4. Skip closed issues in tree view
-5. Use cycle detection to prevent infinite recursion
+5. Track visited IDs for cycle detection, capped at `maxTreeDepth` (50)
 
-**Rendering the tree** (from `cmd/bd-tui/main.go:70-119`):
+**Rendering the tree** (`renderTreeNode` in `internal/ui/render.go`):
 - Uses ASCII tree characters: `├──`, `└──`, `│`
 - Status indicators: `●` (open), `○` (blocked), `◆` (in-progress)
 - Color-coded by priority and status
 - Hierarchical indentation based on depth
+- `o`/`O`/`Z` fold and unfold nodes; the collapsed set persists per repo in
+  `~/.bd-tui/collapse-<hash>.json`
 
 **Example tree output:**
 ```
@@ -552,50 +425,88 @@ DEPENDENCY TREE
 
 1. Update `state.FilterMode` enum in `internal/state/state.go`
 2. Add filter logic to `state.categorizeIssues()` or new getter method
-3. Update `cmd/bd-tui/main.go` to add keybinding and UI handler
+3. Update `cmd/bd-tui/tui.go` to add keybinding and UI handler
 4. Update status bar text to show active filter
 
 ### Adding Issue Details
 
 1. Update `parser.Issue` struct in `internal/parser/types.go` if parsing new fields
-2. Update `formatIssueDetails()` in `cmd/bd-tui/main.go:259-351`
+2. Update `formatting.FormatIssueDetails()` in `internal/formatting/details.go`
 3. Use tview color markup: `[color]text[-]` for foreground, `[::b]text[-::-]` for bold
 
 ### Changing Keybindings
 
-Update `app.SetInputCapture()` in `cmd/bd-tui/main.go`. Current bindings:
+Update `app.SetInputCapture()` in **`cmd/bd-tui/tui.go`** (not `main.go` — the
+TUI moved out of it). Three other places describe the same bindings and drift
+apart easily; change all of them together:
+
+- `cmd/bd-tui/dialog_help.go` — the `?` help screen
+- `README.md` — the "Keyboard Shortcuts" section
+- this file
+
+`cmd/bd-tui/tui_keys_test.go` is where a new binding gets its test.
+
+The capture is layered: modal dialogs get every key untouched, then search mode,
+then detail-panel-focused mode, then normal mode.
 
 **Issue List Mode:**
-- `q`: Quit
+- `q`: Quit (persists collapse state first)
+- `ESC`: Clear search matches; with none, a second ESC within 1s quits
 - `r`: Manual refresh
-- `j`: Down (simulates arrow key)
-- `k`: Up (simulates arrow key)
-- `Ctrl-b`: Scroll up full page (vim style)
-- `Ctrl-f`: Scroll down full page (vim style)
-- `t`: Toggle between list and tree view
-- `m`: Toggle mouse mode on/off
-- `p`: Toggle issue ID prefix display (tui-abc vs abc)
-- `a`: Open issue creation dialog (vim-style "add")
-- `0`-`4`: Quick priority change (set current issue to P0-P4)
-- `s`: Toggle status (cycles: open → in_progress → blocked → closed → open)
+- `j` / `k`: Down / up (re-emitted as arrow keys)
+- `Space`: Page down, wrapping to the top at the end
+- `Ctrl-b` / `Ctrl-f`: Page up / down (vim style)
 - `g` + `g`: Jump to top
 - `G`: Jump to bottom
-- `/`: Start search mode
-- `n`: Next search result
-- `N`: Previous search result
+- `/`: Start search mode (ID, title, labels; jumps to hidden matches too)
+- `n` / `N`: Next / previous search result
+- `t`: Toggle between list and tree view
+- `o`: Fold/unfold the selected node (tree view only, needs children)
+- `O`: Expand all nodes (tree view only)
+- `Z`: Collapse all nodes (tree view only)
+- `v`: Cycle layout pin (auto → Columns → Rows → Paged → auto)
+- `C`: Toggle showing closed issues
+- `m`: Toggle mouse mode on/off
+- `p`: Toggle issue ID prefix display (tui-abc vs abc)
+- `f`: Quick filter dialog
+- `S`: Stats dashboard
+- `?`: Help screen
+- `0`-`4`: Quick priority change (set current issue to P0-P4)
+- `s` then `o`/`i`/`b`/`c`: Set status open / in_progress / blocked / closed.
+  The prefix is lowercase and expires after 2s. `si` also claims an unassigned
+  issue for `git user.name`.
+- `a`: Create issue dialog
+- `A`: Assign dialog (set or clear the assignee)
+- `e`: Edit dialog (title, description, design, acceptance, notes, priority, type)
+- `R`: Rename dialog (title only)
+- `x` / `X`: Close / reopen dialog, with optional reason
+- `c`: Comment dialog
+- `D`: Dependency dialog
+- `L`: Label dialog
+- `y`: Yank issue ID to clipboard
+- `Y`: Yank "id - title" to clipboard
+- `B`: Yank git branch name to clipboard
 - `Tab`: Focus detail panel for scrolling
 - `Enter`: Focus detail panel (when on an issue)
 
 **Detail Panel Mode (when focused):**
-- `ESC`: Return focus to issue list
+- `Tab` or `ESC`: Return focus to issue list
 - `Ctrl-d`: Scroll down half page (vim style)
 - `Ctrl-u`: Scroll up half page (vim style)
+- `Ctrl-f`: Scroll down full page (vim style)
+- `Ctrl-b`: Scroll up full page (vim style)
 - `Ctrl-e`: Scroll down one line (vim style)
 - `Ctrl-y`: Scroll up one line (vim style)
 - `PageDown`: Scroll down full page
 - `PageUp`: Scroll up full page
 - `Home`: Jump to top of details
 - `End`: Jump to bottom of details
+
+**Search Mode (after `/`):** printable runes extend the query, Backspace trims a
+full rune, Enter runs the search, ESC abandons it.
+
+**Unbound on purpose:** there is no theme-cycling key. Themes come from
+`--theme`, `$BEADS_THEME`, or `~/.bd-tui/config.json`.
 
 ### Debugging Watcher Issues
 
@@ -607,24 +518,30 @@ If live updates aren't working:
 
 ## Key Files to Know
 
-- **cmd/bd-tui/main.go** - Complete TUI implementation
+- **cmd/bd-tui/tui.go** - The TUI: widgets, key bindings, refresh plumbing
+- **cmd/bd-tui/main.go** - Entry point only: flags, config, theme, logging, signals
+- **cmd/bd-tui/bd_helpers.go** - The only place that shells out to `bd`
+- **cmd/bd-tui/tui_harness_test.go** - SimulationScreen harness the tests drive
 - **internal/parser/types.go** - Issue domain types (matches JSONL schema)
-- **internal/state/state.go** - Issue categorization and filtering
+- **internal/state/state.go** - Issue categorization, filtering, tree building
 - **internal/storage/jsonl.go** - JSONLReader for reading issues.jsonl
 - **internal/watcher/watcher.go** - Debounced filesystem watching
 
 ## Integration with bd-lite
 
-This TUI is a read-only viewer of bd-lite data. For modifications, use the `bd` command:
+The TUI reads the JSONL directly but writes only through the `bd` CLI, from its
+dialogs and quick-update keys. The same commands work from a shell:
 
 ```bash
-# All bd commands work normally
-bd add "New issue" -p 1
+bd create "New issue" -p 1
 bd update bd-a1b2 --status in_progress
 bd close bd-a1b2 --reason "Fixed in v1.0"
 
 # Changes will auto-refresh in TUI (~200ms latency)
 ```
+
+If `bd` is not on `$PATH` the TUI still starts and displays issues, printing a
+warning that updates will not work.
 
 The JSONL file format is append-only with "last write wins" semantics. The TUI always reads the latest state.
 
@@ -636,7 +553,7 @@ The JSONL file format is append-only with "last write wins" semantics. The TUI a
 
 **Fix:**
 ```bash
-bd add "Test issue" -p 2
+bd create "Test issue" -p 2
 ```
 
 ### File not found error
@@ -645,7 +562,7 @@ bd add "Test issue" -p 2
 
 **Fix:**
 ```bash
-bd init --quiet
+bd init            # or: bd init --prefix myproj
 ```
 
 ### TUI not updating after bd commands
