@@ -192,6 +192,7 @@ bd-lite-tui/
 │   ├── state/           # Issue categorization, filtering, tree building
 │   ├── storage/         # .beads discovery and the JSONLReader for issues.jsonl
 │   ├── theme/           # Built-in and TOML themes
+│   ├── timegroup/       # Timestamp -> relative bucket (Today, This week, ...)
 │   ├── ui/              # Issue list and tree rendering
 │   └── watcher/         # fsnotify wrapper with debouncing
 └── go.mod
@@ -369,6 +370,18 @@ returns no error when it does nothing.
 - `Resolve(width, pin, pinned)` is a pure function, so the split decision is
   testable without standing up a tview app
 - Below `NarrowThreshold` (90) the answer is always `Paged`, pin or no pin
+
+**`internal/timegroup/`** - Relative time buckets
+- `Of(t, now)` maps a timestamp to a `Bucket` (Today, Yesterday, This week,
+  Last week, This month, Older, Undated). `now` is a parameter, not a clock
+  read, so boundary tests are deterministic
+- Bucket ordinals ascend newest to oldest; `All()` walks them in header order
+- Day and week boundaries are drawn in `now`'s location, and weeks open on
+  Monday (ISO 8601)
+- A zero timestamp is `Undated` — bd-lite JSONL can omit a time field, which
+  parses as the zero time rather than an error. A timestamp ahead of `now` is
+  `Today`, since clock skew between machines sharing the JSONL is likelier than
+  a real future date
 
 **`internal/formatting/`** - Presentation
 - Priority/status/type colors, status glyphs, `FormatIssueDetails` for the
