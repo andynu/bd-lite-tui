@@ -90,6 +90,11 @@ type statusBarFields struct {
 	// screen the user is looking at.
 	Focus string
 
+	// View is the active view mode ("List", "Tree", "Created", "Updated").
+	// It comes early because it decides what the rows mean: the same issue
+	// set is grouped by status, by dependency, or by time.
+	View string
+
 	// Layout is the resolved layout mode, with a trailing "*" when the user
 	// has pinned it with v.
 	Layout string
@@ -113,6 +118,9 @@ func formatStatusBar(f statusBarFields) string {
 
 	fmt.Fprintf(&b, "[%s]Beads TUI[-] - %s (%d issues)", f.EmphasisColor, f.Location, f.IssueCount)
 	fmt.Fprintf(&b, " [Focus: %s]", f.Focus)
+	if f.View != "" {
+		fmt.Fprintf(&b, " [View: %s]", f.View)
+	}
 	// "[%s[]" is tview's escape for a literal "[Columns]". Written bare, the tag
 	// parser reads "Columns" as a color name and swallows the whole thing, so
 	// the indicator only ever appeared in its pinned "[Columns*]" form, where

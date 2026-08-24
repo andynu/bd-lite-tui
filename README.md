@@ -139,7 +139,7 @@ filter are disabled rather than guessing at a name.
 - `f` then `@andy` - Only andy's, including `andy/claude-xyz`
 
 ### View Controls
-- `t` - Toggle between list and tree view
+- `t` - Cycle view mode: list → tree → created → updated → list
 - `o` - Fold/unfold the selected node (tree view, node must have children)
 - `O` - Expand all nodes (tree view)
 - `Z` - Collapse all nodes (tree view)

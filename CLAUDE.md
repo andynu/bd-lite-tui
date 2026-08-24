@@ -228,10 +228,15 @@ Columns/Rows it just moves the selection. Header rows are ignored. tview calls
 the handler before assigning its own `currentItem`, so the handler calls
 `SetCurrentItem` itself to get the detail repainted in the right order.
 
-**View modes:** The TUI supports two view modes:
+**View modes:** `state.ViewMode` is an N-way cycle, not a toggle:
 - **List View (default):** Issues grouped by status (ready/blocked/in-progress)
 - **Tree View:** Issues displayed as dependency hierarchy with ASCII tree characters
-- Toggle between modes with the 't' key
+- **Created View / Updated View:** Issues grouped by time bucket. The enum,
+  the `t` cycle, and `--view` accept them; their renderers are still open
+  work (tui-1zyc, tui-eym1), so both currently draw the status-grouped list.
+- `t` advances the cycle; `--view list|tree|created|updated` picks the
+  starting mode and rejects anything else. `state.NextViewMode` names the
+  next mode without switching to it, which is what the list border shows.
 
 **Layout modes:** `internal/layout` picks Columns, Rows, or Paged from the
 terminal width. Below `layout.NarrowThreshold` (90 columns) the result is always
@@ -516,7 +521,7 @@ then detail-panel-focused mode, then normal mode.
 - `G`: Jump to bottom
 - `/`: Start search mode (ID, title, labels; jumps to hidden matches too)
 - `n` / `N`: Next / previous search result
-- `t`: Toggle between list and tree view
+- `t`: Cycle view mode (list → tree → created → updated → list)
 - `o`: Fold/unfold the selected node (tree view only, needs children)
 - `O`: Expand all nodes (tree view only)
 - `Z`: Collapse all nodes (tree view only)

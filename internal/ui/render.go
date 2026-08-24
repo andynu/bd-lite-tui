@@ -36,7 +36,9 @@ func PopulateIssueList(
 		currentIndex++
 	}
 
-	// Check view mode
+	// Check view mode. ViewCreated and ViewUpdated fall through to the
+	// status-grouped list until their renderers land (tui-1zyc, tui-eym1);
+	// they change the grouping, not the row rendering.
 	if appState.GetViewMode() == state.ViewTree {
 		// Tree view
 		accentColor := formatting.GetAccentColor()

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/andynu/bd-lite-tui/internal/parser"
+	"github.com/andynu/bd-lite-tui/internal/state"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
@@ -98,9 +99,14 @@ type harnessConfig struct {
 // harnessOption tweaks the configuration before the app is built.
 type harnessOption func(*harnessConfig)
 
+// withView starts the app in the given view mode.
+func withView(mode state.ViewMode) harnessOption {
+	return func(c *harnessConfig) { c.tui.View = mode }
+}
+
 // withTreeView starts the app in tree view.
 func withTreeView() harnessOption {
-	return func(c *harnessConfig) { c.tui.TreeView = true }
+	return withView(state.ViewTree)
 }
 
 // withWatcher enables the filesystem watcher, which is off by default so most

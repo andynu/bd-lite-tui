@@ -7,6 +7,7 @@ import (
 
 	"github.com/andynu/bd-lite-tui/internal/layout"
 	"github.com/andynu/bd-lite-tui/internal/parser"
+	"github.com/andynu/bd-lite-tui/internal/state"
 	"github.com/gdamore/tcell/v2"
 )
 
@@ -108,11 +109,11 @@ func TestStatusChord_UnknownSecondKeyCancelsTheChord(t *testing.T) {
 	}
 }
 
-// t toggles between list and tree view, and the list border reports which is
-// up. The mode indicator is read off the screen: as the title text it was
-// "Issues [List]", but tview ate the tag and the border said only "Issues"
-// (tui-42ws).
-func TestViewMode_ToggleBetweenListAndTree(t *testing.T) {
+// t cycles list -> tree -> created -> updated -> list, and the list border
+// reports which is up. The mode indicator is read off the screen: as the title
+// text it was "Issues [List]", but tview ate the tag and the border said only
+// "Issues" (tui-42ws).
+func TestViewMode_TCyclesThroughEveryView(t *testing.T) {
 	issues := basicIssues()
 	issues = append(issues, newIssue("tui-ddd", "Delta child", withParent("tui-aaa")))
 	h := newHarness(t, issues)
@@ -135,9 +136,45 @@ func TestViewMode_ToggleBetweenListAndTree(t *testing.T) {
 		t.Errorf("tree row does not show the priority tag:\n%s", text)
 	}
 
+	// The remaining stops in the cycle, back around to list.
+	for _, want := range []string{"Issues [Created]", "Issues [Updated]", "Issues [List]"} {
+		h.typeRunes("t")
+		if text := h.screenText(); !strings.Contains(text, want) {
+			t.Fatalf("the border does not report %q after t:\n%s", want, text)
+		}
+	}
+}
+
+// The status bar names the active view, and the border advertises the one t
+// goes to next.
+func TestViewMode_StatusBarAndBorderNameTheView(t *testing.T) {
+	h := newHarness(t, basicIssues())
+
+	if status := h.statusText(); !strings.Contains(status, "View: List") {
+		t.Fatalf("status bar does not report the starting view: %q", status)
+	}
+	if text := h.screenText(); !strings.Contains(text, "(t:Tree)") {
+		t.Errorf("the border does not name the next view:\n%s", text)
+	}
+
 	h.typeRunes("t")
-	if text := h.screenText(); !strings.Contains(text, "Issues [List]") {
-		t.Fatalf("after the second t: the border does not report list view:\n%s", text)
+	if status := h.statusText(); !strings.Contains(status, "View: Tree") {
+		t.Errorf("status bar does not report tree view: %q", status)
+	}
+	if text := h.screenText(); !strings.Contains(text, "(t:Created)") {
+		t.Errorf("the border does not name the next view from tree:\n%s", text)
+	}
+}
+
+// --view lands on the named mode rather than starting in list view.
+func TestViewMode_StartsInTheModeFromTheFlag(t *testing.T) {
+	h := newHarness(t, basicIssues(), withView(state.ViewUpdated))
+
+	if text := h.screenText(); !strings.Contains(text, "Issues [Updated]") {
+		t.Fatalf("--view updated did not start in updated view:\n%s", text)
+	}
+	if status := h.statusText(); !strings.Contains(status, "View: Updated") {
+		t.Errorf("status bar does not report the flagged view: %q", status)
 	}
 }
 

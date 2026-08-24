@@ -63,8 +63,9 @@ type tuiOptions struct {
 	// (the --issue flag). The restriction survives refreshes.
 	IssueID string
 
-	// TreeView starts the app in tree view rather than list view.
-	TreeView bool
+	// View is the view mode to start in (the --view flag). The zero value is
+	// state.ViewList.
+	View state.ViewMode
 
 	// Screen, when non-nil, is used instead of a real terminal screen.
 	// Tests pass a tcell SimulationScreen.
@@ -122,9 +123,7 @@ func newTUI(opts tuiOptions) (*tui, error) {
 	}
 
 	// Set initial view mode from command line
-	if opts.TreeView {
-		appState.SetViewMode(state.ViewTree)
-	}
+	appState.SetViewMode(opts.View)
 
 	// Create TUI application
 	app := tview.NewApplication()
@@ -219,12 +218,8 @@ func newTUI(opts tuiOptions) (*tui, error) {
 
 	// Helper function to generate issue list title with view mode indicator
 	getIssueListTitle := func() string {
-		mode := "List"
-		toggle := "Tree"
-		if appState.GetViewMode() == state.ViewTree {
-			mode = "Tree"
-			toggle = "List"
-		}
+		mode := appState.GetViewMode()
+		next := state.NextViewMode(mode)
 		// Show position indicator if on an issue
 		posStr := ""
 		if issueList.GetItemCount() > 0 {
@@ -242,7 +237,7 @@ func newTUI(opts tuiOptions) (*tui, error) {
 		}
 		// "[%s[]" renders a literal "[List]" / "[Tree]"; bare, tview reads the
 		// word as a color name and eats the whole tag (tui-42ws).
-		return fmt.Sprintf("Issues [%s[]%s (t:%s)", mode, posStr, toggle)
+		return fmt.Sprintf("Issues [%s[]%s (t:%s)", mode, posStr, next)
 	}
 
 	// The .beads path is shortened once: it never changes, and at full length it
@@ -280,6 +275,7 @@ func newTUI(opts tuiOptions) (*tui, error) {
 			Location:      beadsLabel,
 			IssueCount:    visibleCount,
 			Focus:         focusStr,
+			View:          appState.GetViewMode().String(),
 			Layout:        layoutStr,
 			Filters:       filters,
 			ShowingClosed: showClosedIssues,
@@ -1300,8 +1296,8 @@ func newTUI(opts tuiOptions) (*tui, error) {
 				prevSearchMatch()
 				return nil
 			case 't':
-				// Toggle view mode
-				appState.ToggleViewMode()
+				// Cycle view mode: list -> tree -> created -> updated -> list
+				appState.CycleViewMode()
 				issueList.SetTitle(getIssueListTitle())
 				statusBar.SetText(getStatusBarText())
 				populateIssueList()

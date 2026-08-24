@@ -81,7 +81,7 @@ func (h *DialogHelpers) ShowHelpScreen() {
   f  @andy       Filter to andy (matches "andy/claude-xyz" too)
 
 [cyan::b]View Controls[-::-]
-  t           Toggle between list and tree view
+  t           Cycle view: list → tree → created → updated → list
   v           Cycle layout: auto → columns → rows → paged → auto
 
   The layout follows the terminal width. Under 90 columns it
@@ -123,7 +123,7 @@ func (h *DialogHelpers) ShowHelpScreen() {
   --theme <name>      Set color theme
     bd-tui --theme gruvbox-dark
 
-  --view <mode>       Start in list or tree view
+  --view <mode>       Start in list, tree, created, or updated view
     bd-tui --view tree
 
   --issue <id>        Show only a specific issue

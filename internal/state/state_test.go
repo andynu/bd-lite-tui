@@ -2,6 +2,7 @@ package state
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -282,27 +283,94 @@ func TestGetIssueByID(t *testing.T) {
 	}
 }
 
-func TestTreeViewMode(t *testing.T) {
-	state := New()
+func TestCycleViewMode(t *testing.T) {
+	s := New()
 
-	// Initially should be in list view
-	if state.GetViewMode() != ViewList {
-		t.Errorf("Expected ViewList mode, got %v", state.GetViewMode())
+	if s.GetViewMode() != ViewList {
+		t.Errorf("Expected ViewList mode, got %v", s.GetViewMode())
 	}
 
-	// Toggle to tree view
-	mode := state.ToggleViewMode()
-	if mode != ViewTree {
-		t.Errorf("Expected ViewTree after toggle, got %v", mode)
+	// One full lap, ending back where it started.
+	want := []ViewMode{ViewTree, ViewCreated, ViewUpdated, ViewList}
+	for i, expected := range want {
+		got := s.CycleViewMode()
+		if got != expected {
+			t.Fatalf("cycle %d returned %v, want %v", i+1, got, expected)
+		}
+		if s.GetViewMode() != expected {
+			t.Fatalf("cycle %d left the state at %v, want %v", i+1, s.GetViewMode(), expected)
+		}
 	}
-	if state.GetViewMode() != ViewTree {
-		t.Errorf("Expected ViewTree mode, got %v", state.GetViewMode())
+}
+
+// The tree is built for tree view and nothing else. The time views read the
+// categorized lists, so building a tree for them is work nobody renders.
+func TestSetViewModeBuildsTheTreeOnlyForTreeView(t *testing.T) {
+	now := time.Now()
+	s := New()
+	s.LoadIssues([]*parser.Issue{
+		{ID: "test-1", Title: "Parent", Status: parser.StatusOpen, Priority: 1, CreatedAt: now, UpdatedAt: now},
+		{
+			ID: "test-2", Title: "Child", Status: parser.StatusOpen, Priority: 2, CreatedAt: now, UpdatedAt: now,
+			Dependencies: []*parser.Dependency{{DependsOnID: "test-1", Type: parser.DepParentChild}},
+		},
+	})
+
+	for _, mode := range []ViewMode{ViewList, ViewCreated, ViewUpdated} {
+		s.treeNodes = nil
+		s.SetViewMode(mode)
+		if s.GetTreeNodes() != nil {
+			t.Errorf("SetViewMode(%v) built a dependency tree", mode)
+		}
 	}
 
-	// Toggle back to list view
-	mode = state.ToggleViewMode()
-	if mode != ViewList {
-		t.Errorf("Expected ViewList after second toggle, got %v", mode)
+	s.SetViewMode(ViewTree)
+	if len(s.GetTreeNodes()) == 0 {
+		t.Error("SetViewMode(ViewTree) did not build the dependency tree")
+	}
+}
+
+func TestParseViewMode(t *testing.T) {
+	cases := map[string]ViewMode{
+		"list":    ViewList,
+		"tree":    ViewTree,
+		"created": ViewCreated,
+		"updated": ViewUpdated,
+		"Tree":    ViewTree,
+		"UPDATED": ViewUpdated,
+	}
+	for in, want := range cases {
+		got, err := ParseViewMode(in)
+		if err != nil {
+			t.Errorf("ParseViewMode(%q) returned an error: %v", in, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("ParseViewMode(%q) = %v, want %v", in, got, want)
+		}
+	}
+
+	// An unknown value is refused, and the message names the alternatives.
+	for _, in := range []string{"", "trees", "grid"} {
+		_, err := ParseViewMode(in)
+		if err == nil {
+			t.Errorf("ParseViewMode(%q) accepted an unknown mode", in)
+			continue
+		}
+		for _, name := range ViewModeNames() {
+			if !strings.Contains(err.Error(), name) {
+				t.Errorf("ParseViewMode(%q) error does not mention %q: %v", in, name, err)
+			}
+		}
+	}
+}
+
+func TestNextViewModeWraps(t *testing.T) {
+	if got := NextViewMode(ViewUpdated); got != ViewList {
+		t.Errorf("NextViewMode(ViewUpdated) = %v, want ViewList", got)
+	}
+	if got := NextViewMode(ViewMode(99)); got != ViewList {
+		t.Errorf("NextViewMode on an out-of-range mode = %v, want ViewList", got)
 	}
 }
 

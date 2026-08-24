@@ -65,13 +65,76 @@ const (
 	FilterByType
 )
 
-// ViewMode represents different view layouts
+// ViewMode is how the issue list arranges what it shows.
 type ViewMode int
 
 const (
+	// ViewList groups issues by status: in-progress, ready, blocked.
 	ViewList ViewMode = iota
+	// ViewTree renders the dependency hierarchy.
 	ViewTree
+	// ViewCreated groups issues by when they were created.
+	ViewCreated
+	// ViewUpdated groups issues by when they were last touched.
+	ViewUpdated
 )
+
+// viewModes is every view mode, in the order the t key cycles them. It is the
+// one list: String, ParseViewMode, and NextViewMode all read it, so adding a
+// mode to the enum and to this slice is the whole change.
+var viewModes = []ViewMode{ViewList, ViewTree, ViewCreated, ViewUpdated}
+
+// String is the display name, as it appears in the list border and the status
+// bar. Lowercased it is also the --view spelling, which is what ParseViewMode
+// matches against.
+func (v ViewMode) String() string {
+	switch v {
+	case ViewList:
+		return "List"
+	case ViewTree:
+		return "Tree"
+	case ViewCreated:
+		return "Created"
+	case ViewUpdated:
+		return "Updated"
+	default:
+		return "Unknown"
+	}
+}
+
+// ViewModeNames returns the accepted --view spellings, in cycle order, for use
+// in flag help and error messages.
+func ViewModeNames() []string {
+	names := make([]string, 0, len(viewModes))
+	for _, mode := range viewModes {
+		names = append(names, strings.ToLower(mode.String()))
+	}
+	return names
+}
+
+// ParseViewMode maps a --view flag value to a ViewMode, case-insensitively.
+// An unknown value is an error rather than a silent fall back to list view:
+// a typo that quietly starts the wrong view is worse than a refusal.
+func ParseViewMode(s string) (ViewMode, error) {
+	for _, mode := range viewModes {
+		if strings.EqualFold(s, mode.String()) {
+			return mode, nil
+		}
+	}
+	return ViewList, fmt.Errorf("unknown view mode %q: want one of %s", s, strings.Join(ViewModeNames(), ", "))
+}
+
+// NextViewMode returns the mode after m in the cycle, wrapping at the end. It
+// is a package function rather than a method on State so the UI can name the
+// next mode ("t:Tree") without switching to it.
+func NextViewMode(m ViewMode) ViewMode {
+	for i, mode := range viewModes {
+		if mode == m {
+			return viewModes[(i+1)%len(viewModes)]
+		}
+	}
+	return ViewList
+}
 
 // TreeNode represents a node in the dependency tree
 type TreeNode struct {
@@ -427,7 +490,9 @@ func (s *State) GetSelectedIssue() *parser.Issue {
 	return s.selectedIssue
 }
 
-// SetViewMode sets the current view mode
+// SetViewMode sets the current view mode. Building the dependency tree is a
+// side effect of ViewTree alone; the flat views read the categorized lists and
+// would only pay for a tree nobody renders.
 func (s *State) SetViewMode(mode ViewMode) {
 	s.viewMode = mode
 	if mode == ViewTree {
@@ -440,13 +505,10 @@ func (s *State) GetViewMode() ViewMode {
 	return s.viewMode
 }
 
-// ToggleViewMode switches between list and tree view
-func (s *State) ToggleViewMode() ViewMode {
-	if s.viewMode == ViewList {
-		s.SetViewMode(ViewTree)
-	} else {
-		s.SetViewMode(ViewList)
-	}
+// CycleViewMode advances to the next view mode, wrapping at the end, and
+// returns the mode now in effect.
+func (s *State) CycleViewMode() ViewMode {
+	s.SetViewMode(NextViewMode(s.viewMode))
 	return s.viewMode
 }
 

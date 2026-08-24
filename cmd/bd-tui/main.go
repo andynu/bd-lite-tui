@@ -9,11 +9,13 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/andynu/bd-lite-tui/internal/config"
+	"github.com/andynu/bd-lite-tui/internal/state"
 	"github.com/andynu/bd-lite-tui/internal/storage"
 	"github.com/andynu/bd-lite-tui/internal/theme"
 	_ "github.com/andynu/bd-lite-tui/internal/theme" // Import to register themes
@@ -23,9 +25,18 @@ func main() {
 	// Parse command line flags
 	debugMode := flag.Bool("debug", false, "Enable debug logging to file")
 	themeName := flag.String("theme", "", "Color theme (default, gruvbox-dark, etc)")
-	viewMode := flag.String("view", "list", "Initial view mode (list or tree)")
+	viewMode := flag.String("view", "list", fmt.Sprintf("Initial view mode (%s)", strings.Join(state.ViewModeNames(), ", ")))
 	issueID := flag.String("issue", "", "Show only this issue (e.g., tui-abc)")
 	flag.Parse()
+
+	// Reject an unknown --view before any other startup work: the alternative
+	// is silently opening list view and leaving the user to wonder why their
+	// flag did nothing.
+	initialView, err := state.ParseViewMode(*viewMode)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: --view: %v\n", err)
+		os.Exit(2)
+	}
 
 	// Load user config (includes theme preference)
 	cfg, err := config.Load()
@@ -112,7 +123,7 @@ func main() {
 		BeadsDir:  beadsDir,
 		JSONLPath: jsonlPath,
 		IssueID:   *issueID,
-		TreeView:  *viewMode == "tree",
+		View:      initialView,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
