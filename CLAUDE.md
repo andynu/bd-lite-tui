@@ -267,6 +267,13 @@ switch between them — even against an explicit pin, because neither split leav
 a readable column. `v` cycles the pin auto → Columns → Rows → Paged → auto; a
 pinned mode is marked with `*` in the status bar.
 
+A layout change rebuilds the whole `"main"` page, because tview cannot swap a
+Flex's children in place. `tview.Pages.AddPage` appends, so `remountLayout` has
+to follow it with `SendToBack("main")`, or the rebuild lands on top of any open
+dialog and takes over `GetFrontPage()` while the dialog still holds the keyboard
+(tui-bl1e). For the same reason `updatePanelFocus` asserts panel focus only when
+the main page is in front; while a dialog is up, focus belongs to it.
+
 **Panel focus system:** The TUI has two focusable panels (issue list and detail panel):
 - **Default:** Issue list is focused (for navigation)
 - **Tab or Enter:** Focus detail panel to enable keyboard scrolling

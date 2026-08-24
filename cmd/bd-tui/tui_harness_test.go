@@ -334,6 +334,30 @@ func (h *harness) key(k tcell.Key) {
 	h.press(tcell.NewEventKey(k, 0, tcell.ModNone))
 }
 
+// resizeAcrossLayoutThreshold changes the simulation screen size and returns
+// once the layout rebuild the new width asks for has landed.
+//
+// tcell's simulation screen resizes silently, so a round trip through the event
+// loop is what provokes the draw that notices the new width, and the rebuild
+// itself is handed to QueueUpdateDraw from a goroutine — neither is done when
+// SetSize returns. The rebuild replaces the main page's primitive, so comparing
+// it against the one that was mounted before observes exactly the event being
+// waited on. The new width must therefore actually resolve to a different
+// layout.Mode; a resize that stays on the same side of layout.NarrowThreshold
+// rebuilds nothing and times out here.
+func (h *harness) resizeAcrossLayoutThreshold(width, height int) {
+	h.t.Helper()
+
+	var before tview.Primitive
+	h.read(func() { before = h.tui.pages.GetPage("main") })
+
+	h.screen.SetSize(width, height)
+	h.press()
+
+	h.waitFor(fmt.Sprintf("the layout rebuild queued by resizing to %dx%d", width, height),
+		func() bool { return h.tui.pages.GetPage("main") != before })
+}
+
 // read runs fn on the tview event loop goroutine, so widget state can be
 // inspected without racing a draw. QueueUpdate returns only after fn has run,
 // so callers can read values fn assigned.

@@ -626,6 +626,11 @@ func newTUI(opts tuiOptions) (*tui, error) {
 	// exists; declared here because updatePanelFocus below has to call it.
 	var remountLayout func()
 
+	// Reports whether a modal dialog is in front of the main page. Assigned
+	// alongside remountLayout, for the same reason, and nil until then — the
+	// first updatePanelFocus call runs before there are any pages at all.
+	var dialogOpen func() bool
+
 	// Helper function to update panel focus indicators
 	updatePanelFocus := func() {
 		if detailPanelFocused {
@@ -645,10 +650,17 @@ func newTUI(opts tuiOptions) (*tui, error) {
 		if currentLayout == layout.Paged && remountLayout != nil {
 			remountLayout()
 		}
-		if detailPanelFocused {
-			app.SetFocus(detailPanel)
-		} else {
-			app.SetFocus(issueList)
+		// A modal owns the keyboard for as long as it is up. Pulling focus down
+		// to a panel behind it would leave the dialog on screen with its keys
+		// going elsewhere, so the panel focus is only asserted when the main
+		// page is the front one (tui-bl1e). The dialog gets focus back from
+		// tview instead: Pages.Focus delegates to its topmost visible page.
+		if dialogOpen == nil || !dialogOpen() {
+			if detailPanelFocused {
+				app.SetFocus(detailPanel)
+			} else {
+				app.SetFocus(issueList)
+			}
 		}
 		statusBar.SetText(getStatusBarText())
 	}
@@ -760,11 +772,21 @@ func newTUI(opts tuiOptions) (*tui, error) {
 		AddPage("main", flex, true, true)
 	t.pages = pages
 
+	dialogOpen = func() bool {
+		name, _ := pages.GetFrontPage()
+		return name != "main"
+	}
+
 	// tview cannot swap a Flex's children in place, so a layout change rebuilds
-	// the main page. Modal pages sit above "main" and are left untouched.
+	// the main page. Modal pages sit above "main" and are left untouched — but
+	// AddPage appends, so a re-added "main" would land on top of them, draw over
+	// the dialog and become GetFrontPage() while the dialog still held the keys
+	// (tui-bl1e). SendToBack puts it back underneath, and takes focus with it:
+	// it ends by re-delegating focus to the topmost visible page.
 	remountLayout = func() {
 		pages.RemovePage("main")
 		pages.AddPage("main", buildLayout(), true, true)
+		pages.SendToBack("main")
 	}
 
 	// Re-resolve the layout whenever the terminal width crosses the threshold.

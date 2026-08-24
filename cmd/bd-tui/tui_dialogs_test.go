@@ -100,14 +100,12 @@ func TestDialogs_HelpTogglesAndRenders(t *testing.T) {
 // footer that says it scrolls has to be outside the scrolling body. tui-4gih:
 // the old hint was the last line of helpText, which the reader never reached.
 //
-// Run at the harness default size rather than 80x24, which would be the honest
-// size for this bug: below layout.NarrowThreshold the first draw queues a
-// layout remount, and remountLayout re-adds the main page on top of whatever
-// dialog is open (tui-bl1e), which buries the help about a third of the time.
-// The body still overflows 40 rows, so every position the footer reports is
-// still exercised.
+// Run at the size the bug is about. This briefly had to use the harness default
+// instead: below layout.NarrowThreshold the first draw queues a layout rebuild
+// that used to re-add the main page on top of whatever dialog was open, burying
+// the help about a third of the time. That is tui-bl1e, now fixed.
 func TestDialogs_HelpFooterIsPinnedAndTracksScrolling(t *testing.T) {
-	h := newHarness(t, basicIssues())
+	h := newHarness(t, basicIssues(), withScreenSize(80, 24))
 
 	h.typeRunes("?")
 	first := h.screenText()
@@ -132,6 +130,51 @@ func TestDialogs_HelpFooterIsPinnedAndTracksScrolling(t *testing.T) {
 	h.typeRunes("G")
 	if end := h.screenText(); !strings.Contains(end, "Bot") {
 		t.Errorf("G did not put the position field at Bot:\n%s", end)
+	}
+}
+
+// Resizing the terminal across layout.NarrowThreshold rebuilds the main page,
+// and tview appends a re-added page to the end of its list. That drew "main"
+// over any open dialog and made it GetFrontPage(), so the dialog vanished while
+// it still held the keyboard and every key went somewhere invisible (tui-bl1e).
+//
+// Both directions are covered: a user who narrows their terminal with a dialog
+// up, and one who widens it again.
+func TestDialogs_SurviveALayoutRemount(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		start, resize [2]int
+	}{
+		{"narrowing", [2]int{120, 24}, [2]int{80, 24}},
+		{"widening", [2]int{80, 24}, [2]int{120, 24}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t, basicIssues(), withScreenSize(tc.start[0], tc.start[1]))
+
+			h.typeRunes("S")
+			if got := h.frontPage(); got != "stats" {
+				t.Fatalf("S did not open the stats dashboard, front page is %q", got)
+			}
+
+			h.resizeAcrossLayoutThreshold(tc.resize[0], tc.resize[1])
+
+			if got := h.frontPage(); got != "stats" {
+				t.Fatalf("the layout rebuild buried the dialog: front page is %q", got)
+			}
+			if text := h.screenText(); !strings.Contains(text, "Statistics Dashboard") {
+				t.Fatalf("the dialog stopped being drawn after the rebuild:\n%s", text)
+			}
+
+			// The dialog still owns the keyboard, so ESC closes it rather than
+			// arming the list's quit hint underneath.
+			h.key(tcell.KeyEscape)
+			if got := h.frontPage(); got != "main" {
+				t.Fatalf("ESC did not close the dialog after the rebuild, front page is %q", got)
+			}
+			if status := h.statusText(); strings.Contains(status, "Press ESC again to quit") {
+				t.Fatalf("ESC reached the issue list instead of the dialog: %q", status)
+			}
+		})
 	}
 }
 
