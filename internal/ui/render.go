@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/andynu/bd-lite-tui/internal/formatting"
 	"github.com/andynu/bd-lite-tui/internal/parser"
@@ -11,11 +12,16 @@ import (
 
 // PopulateIssueList clears and rebuilds the issue list from state
 // Updates the provided indexToIssue map in place to avoid stale pointer issues
+//
+// now is the moment the relative time buckets ("Today", "This week") are drawn
+// against. It is a parameter rather than a clock read so the grouping is
+// reproducible in a test.
 func PopulateIssueList(
 	issueList *tview.List,
 	appState *state.State,
 	showClosedIssues bool,
 	showPrefix bool,
+	now time.Time,
 	indexToIssue map[int]*parser.Issue,
 ) {
 	// Clear and rebuild issue list
@@ -36,10 +42,11 @@ func PopulateIssueList(
 		currentIndex++
 	}
 
-	// Check view mode. ViewCreated and ViewUpdated fall through to the
-	// status-grouped list until their renderers land (tui-1zyc, tui-eym1);
-	// they change the grouping, not the row rendering.
-	if appState.GetViewMode() == state.ViewTree {
+	// Check view mode. ViewUpdated falls through to the status-grouped list
+	// until its renderer lands (tui-eym1); it changes the grouping, not the
+	// row rendering.
+	switch appState.GetViewMode() {
+	case state.ViewTree:
 		// Tree view
 		accentColor := formatting.GetAccentColor()
 		issueList.AddItem(fmt.Sprintf("[%s::b]DEPENDENCY TREE[-::-]", accentColor), "", 0, nil)
@@ -50,7 +57,10 @@ func PopulateIssueList(
 			isLast := i == len(treeNodes)-1
 			renderTreeNode(issueList, appState, node, "", isLast, showPrefix, &currentIndex, indexToIssue)
 		}
-	} else {
+	case state.ViewCreated:
+		groups := appState.GroupByTime(state.CreatedAt, now, showClosedIssues)
+		renderTimeGroups(issueList, appState, groups, showPrefix, &currentIndex, indexToIssue)
+	default:
 		// List view (original behavior)
 		// Add in-progress issues first (most important)
 		inProgressIssues := appState.GetInProgressIssues()
@@ -169,6 +179,25 @@ func formatAssigneeSuffix(issue *parser.Issue) string {
 	return fmt.Sprintf(" [%s]@%s[-]", formatting.GetMutedColor(), tview.Escape(issue.Assignee))
 }
 
+// issueStatus returns the glyph and color for an issue's effective status.
+//
+// The status-grouped list view knows an issue's status from the group it is
+// rendering, but the tree and the time-keyed views interleave statuses, so they
+// derive it per row. Effective blocking is what matters: an issue held up by an
+// open dependency shows as blocked even though its own status is "open".
+func issueStatus(appState *state.State, issue *parser.Issue) (icon, color string) {
+	switch {
+	case issue.Status == parser.StatusClosed:
+		return "✓", formatting.GetStatusColor(parser.StatusClosed)
+	case issue.Status == parser.StatusInProgress:
+		return "◆", formatting.GetStatusColor(parser.StatusInProgress)
+	case appState.IsEffectivelyBlocked(issue.ID):
+		return "○", formatting.GetStatusColor(parser.StatusBlocked)
+	default:
+		return "●", formatting.GetStatusColor(parser.StatusOpen)
+	}
+}
+
 // renderTreeNode recursively renders a tree node and its children
 func renderTreeNode(
 	issueList *tview.List,
@@ -199,27 +228,7 @@ func renderTreeNode(
 		}
 	}
 
-	// Get status indicator - use effective blocking status for consistent display
-	// This ensures issues blocked by dependencies show as blocked even if their
-	// explicit status is "open"
-	var statusIcon string
-	var statusColor string
-	switch {
-	case issue.Status == parser.StatusClosed:
-		statusIcon = "✓"
-		statusColor = formatting.GetStatusColor(parser.StatusClosed)
-	case issue.Status == parser.StatusInProgress:
-		statusIcon = "◆"
-		statusColor = formatting.GetStatusColor(parser.StatusInProgress)
-	case appState.IsEffectivelyBlocked(issue.ID):
-		// Blocked by explicit status OR by dependency
-		statusIcon = "○"
-		statusColor = formatting.GetStatusColor(parser.StatusBlocked)
-	default:
-		// Ready (open and not blocked)
-		statusIcon = "●"
-		statusColor = formatting.GetStatusColor(parser.StatusOpen)
-	}
+	statusIcon, statusColor := issueStatus(appState, issue)
 
 	// Add collapse indicator for parent nodes
 	collapseIndicator := ""

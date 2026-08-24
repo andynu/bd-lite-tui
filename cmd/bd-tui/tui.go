@@ -74,6 +74,11 @@ type tuiOptions struct {
 	// NoWatcher skips the filesystem watcher. Tests that drive refreshes
 	// themselves use this to keep timing deterministic.
 	NoWatcher bool
+
+	// Now supplies the moment the time-keyed views bucket against. It is
+	// consulted on every repopulate, so an issue crosses from "Today" into
+	// "Yesterday" without a restart. nil means time.Now.
+	Now func() time.Time
 }
 
 // tui is a fully wired application: widgets, state, key bindings, and the
@@ -284,8 +289,12 @@ func newTUI(opts tuiOptions) (*tui, error) {
 	}
 
 	// Helper function to populate issue list from state
+	now := opts.Now
+	if now == nil {
+		now = time.Now
+	}
 	populateIssueList := func() {
-		ui.PopulateIssueList(issueList, appState, showClosedIssues, showPrefix, indexToIssue)
+		ui.PopulateIssueList(issueList, appState, showClosedIssues, showPrefix, now(), indexToIssue)
 	}
 
 	// safeQueueUpdateDraw wraps app.QueueUpdateDraw with timeout protection

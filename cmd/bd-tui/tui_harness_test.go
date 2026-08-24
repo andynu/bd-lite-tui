@@ -135,6 +135,13 @@ func withIdentity(name string) harnessOption {
 	return func(c *harnessConfig) { c.identity = name }
 }
 
+// withNow pins the clock the time-keyed views bucket against, so a fixture's
+// timestamps land in the buckets the test intends however long after the
+// fixture was written the suite happens to run.
+func withNow(now time.Time) harnessOption {
+	return func(c *harnessConfig) { c.tui.Now = func() time.Time { return now } }
+}
+
 // withScreenSize widens (or narrows) the simulation screen. The default 120
 // columns leaves the list pane around 38 wide, which truncates long rows before
 // they reach the screen; a test asserting on the tail of a row needs more room.
@@ -643,6 +650,16 @@ func withLabels(labels ...string) func(*parser.Issue) {
 
 func withAssignee(assignee string) func(*parser.Issue) {
 	return func(i *parser.Issue) { i.Assignee = assignee }
+}
+
+// withCreatedAt sets the creation timestamp, which is what the Created view
+// groups on. UpdatedAt follows it so an issue does not look edited after it was
+// created.
+func withCreatedAt(t time.Time) func(*parser.Issue) {
+	return func(i *parser.Issue) {
+		i.CreatedAt = t
+		i.UpdatedAt = t
+	}
 }
 
 // withBlockedBy makes the issue depend on blockerID, so it lands in the blocked

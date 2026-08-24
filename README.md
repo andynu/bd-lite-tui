@@ -10,7 +10,7 @@ A powerful terminal user interface for the [bd-lite](https://github.com/andynu/b
 
 ### Core Functionality
 - **Live monitoring** of `.beads/issues.jsonl` with automatic refresh
-- **Dual view modes** - List view (grouped by status) and Tree view (dependency hierarchy)
+- **Four view modes** - List (grouped by status), Tree (dependency hierarchy), Created (grouped by age), Updated
 - **Issue segregation** - Separate views for ready, blocked, and in-progress issues
 - **Vim-style navigation** - j/k for movement, gg/G for jumps, familiar keybindings
 - **Rich detail panel** - Full issue metadata, dependencies, comments, and acceptance criteria
@@ -241,7 +241,7 @@ bd-lite-tui/
 │   ├── state/           # Issue categorization, filtering, tree building
 │   ├── storage/         # .beads discovery and the JSONL file reader
 │   ├── theme/           # Built-in and TOML themes
-│   ├── ui/              # Issue list and tree rendering
+│   ├── ui/              # Issue list, tree, and time-grouped rendering
 │   └── watcher/         # Filesystem monitoring with debouncing
 └── go.mod
 ```
@@ -481,7 +481,8 @@ bd comment tui-xyz "Your comment text"
   or `~/.bd-tui/config.json`. There is no theme-cycling key.
 
 **`internal/ui/`** - UI helpers
-- `PopulateIssueList` rebuilds the issue list; `renderTreeNode` draws tree view
+- `PopulateIssueList` rebuilds the issue list; `renderTreeNode` draws tree view;
+  `renderTimeGroups` draws the Created view's time buckets
 
 **`internal/watcher/`** - File monitoring
 - fsnotify wrapper with 200ms debouncing

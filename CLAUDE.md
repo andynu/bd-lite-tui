@@ -161,9 +161,14 @@ or shells out to `bd`.
 - `h.calls()` returns the recorded `bd` invocations; `h.setBdResponse` installs
   a failing one to cover error paths.
 
+- `withNow(t)` pins the clock the time-keyed views bucket against. Any test
+  asserting on a `TODAY`/`THIS WEEK` header needs it, or it passes today and
+  fails next week.
+
 Fixtures: `basicIssues()` (three ready, one closed), `treeIssues()` (a
-parent-child edge), or build your own with `newIssue(id, title, withStatus(...),
-withPriority(...), withBlockedBy(...), ...)`.
+parent-child edge), `createdIssues()` (one issue per time bucket), or build your
+own with `newIssue(id, title, withStatus(...), withPriority(...),
+withBlockedBy(...), withCreatedAt(...), ...)`.
 
 ## Architecture
 
@@ -193,7 +198,7 @@ bd-lite-tui/
 │   ├── storage/         # .beads discovery and the JSONLReader for issues.jsonl
 │   ├── theme/           # Built-in and TOML themes
 │   ├── timegroup/       # Timestamp -> relative bucket (Today, This week, ...)
-│   ├── ui/              # Issue list and tree rendering
+│   ├── ui/              # Issue list, tree, and time-grouped rendering
 │   └── watcher/         # fsnotify wrapper with debouncing
 └── go.mod
 ```
@@ -231,9 +236,12 @@ the handler before assigning its own `currentItem`, so the handler calls
 **View modes:** `state.ViewMode` is an N-way cycle, not a toggle:
 - **List View (default):** Issues grouped by status (ready/blocked/in-progress)
 - **Tree View:** Issues displayed as dependency hierarchy with ASCII tree characters
-- **Created View / Updated View:** Issues grouped by time bucket. The enum,
-  the `t` cycle, and `--view` accept them; their renderers are still open
-  work (tui-1zyc, tui-eym1), so both currently draw the status-grouped list.
+- **Created View:** the same rows as list view, grouped by when each issue was
+  created — `TODAY`, `YESTERDAY`, `THIS WEEK`, and so on, newest bucket first,
+  newest issue first within a bucket. Empty buckets are omitted. `C` and `f`
+  apply here exactly as in list view.
+- **Updated View:** the same idea keyed on `updated_at`. Its renderer is still
+  open work (tui-eym1), so it currently draws the status-grouped list.
 - `t` advances the cycle; `--view list|tree|created|updated` picks the
   starting mode and rejects anything else. `state.NextViewMode` names the
   next mode without switching to it, which is what the list border shows.
@@ -357,8 +365,12 @@ returns no error when it does nothing.
 - Categorizes issues into ready/blocked/in-progress/closed
 - Builds dependency graph to detect blocking relationships
 - Provides getters for filtered issue lists
-- Manages view mode state (list vs tree)
+- Manages view mode state (list, tree, created, updated)
 - Builds tree structure from parent-child and blocks dependencies
+- `GroupByTime` (time_groups.go) buckets the visible issues for the time-keyed
+  views: filters and the closed toggle applied, `timegroup.All` order, newest
+  first inside a bucket, ties broken by ID so a rebuild does not shuffle rows
+  under the cursor. `now` is a parameter, never a clock read.
 - No UI concerns - pure business logic
 
 **`internal/identity/`** - Who the TUI acts as
