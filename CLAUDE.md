@@ -326,6 +326,14 @@ Editing is in-TUI only: the fields are tview text areas. There is no `$EDITOR`
 suspend-and-spawn path, and the modal-dialog approach replaced the original
 plan for one. If you add that, it is new work, not a resumption.
 
+The help screen is ~200 lines against ~20 rows on an 80x24 terminal, so its
+hint line lives in a fixed footer below the scrolling body, never in `helpText`
+— text appended to `helpText` scrolls out of reach, which is what tui-4gih was
+filed for. The footer's position field (`All`/`Top`/`n%`/`Bot`) is composed at
+draw time from the body's scroll offset and `tview.WordWrap`, and `G`/`End`
+scroll to a computed offset rather than tview's `trackEnd`, whose value only
+resolves while the body draws — after the footer has already been composed.
+
 While a dialog is up, `app.SetInputCapture` returns the event untouched
 (`pages.GetFrontPage() != "main"`), so the dialog owns all input and the normal
 keybindings are inert.

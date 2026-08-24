@@ -26,6 +26,41 @@ func readDoc(t *testing.T, name string) string {
 	return string(b)
 }
 
+func TestHelpScrollPosition(t *testing.T) {
+	cases := []struct {
+		name                   string
+		offset, visible, total int
+		want                   string
+	}{
+		{"the whole document fits", 0, 40, 30, "All"},
+		{"exactly fits", 0, 30, 30, "All"},
+		{"unmeasured body", 0, 0, 200, "All"},
+		{"at the top", 0, 20, 200, "Top"},
+		{"one line down", 1, 20, 200, "0%"},
+		{"halfway", 90, 20, 200, "50%"},
+		{"last scrollable line", 180, 20, 200, "Bot"},
+		{"offset past the end, before tview clamps it", 400, 20, 200, "Bot"},
+		{"negative offset", -5, 20, 200, "Top"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := helpScrollPosition(tc.offset, tc.visible, tc.total); got != tc.want {
+				t.Errorf("helpScrollPosition(%d, %d, %d) = %q, want %q",
+					tc.offset, tc.visible, tc.total, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestHelpFooterNamesTheScrollAndCloseKeys(t *testing.T) {
+	got := helpFooter(0, 20, 200)
+	for _, want := range []string{"Top", "↑/↓", "PgUp/PgDn", "scroll", "ESC or ? closes"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("help footer %q is missing %q", got, want)
+		}
+	}
+}
+
 func TestHelpScreenNamesEveryViewMode(t *testing.T) {
 	for _, name := range state.ViewModeNames() {
 		if !strings.Contains(helpText, name) {

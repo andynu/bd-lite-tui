@@ -96,6 +96,45 @@ func TestDialogs_HelpTogglesAndRenders(t *testing.T) {
 	}
 }
 
+// The help screen is ~200 lines and only ~20 fit on an 80x24 terminal, so the
+// footer that says it scrolls has to be outside the scrolling body. tui-4gih:
+// the old hint was the last line of helpText, which the reader never reached.
+//
+// Run at the harness default size rather than 80x24, which would be the honest
+// size for this bug: below layout.NarrowThreshold the first draw queues a
+// layout remount, and remountLayout re-adds the main page on top of whatever
+// dialog is open (tui-bl1e), which buries the help about a third of the time.
+// The body still overflows 40 rows, so every position the footer reports is
+// still exercised.
+func TestDialogs_HelpFooterIsPinnedAndTracksScrolling(t *testing.T) {
+	h := newHarness(t, basicIssues())
+
+	h.typeRunes("?")
+	first := h.screenText()
+	for _, want := range []string{"↑/↓ PgUp/PgDn scroll", "ESC or ? closes", "Top"} {
+		if !strings.Contains(first, want) {
+			t.Errorf("the unscrolled help screen is missing %q:\n%s", want, first)
+		}
+	}
+
+	h.key(tcell.KeyPgDn)
+	paged := h.screenText()
+	if !strings.Contains(paged, "↑/↓ PgUp/PgDn scroll") {
+		t.Errorf("the footer scrolled away with the body:\n%s", paged)
+	}
+	if strings.Contains(paged, "Top") {
+		t.Errorf("the position still reads Top after PgDn:\n%s", paged)
+	}
+	if paged == first {
+		t.Error("PgDn did not scroll the help body")
+	}
+
+	h.typeRunes("G")
+	if end := h.screenText(); !strings.Contains(end, "Bot") {
+		t.Errorf("G did not put the position field at Bot:\n%s", end)
+	}
+}
+
 // The stats dashboard counts the issues it was given.
 func TestDialogs_StatsCountsTheIssues(t *testing.T) {
 	issues := append(basicIssues(),

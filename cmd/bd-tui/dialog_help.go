@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
@@ -46,7 +48,8 @@ const helpText = `[yellow::b]bd-tui Keyboard Shortcuts[-::-]
   revealing it as needed.
 
 [cyan::b]Quick Actions[-::-]
-  0-4         Set priority (P0=critical, P1=high, P2=normal, P3=low, P4=lowest)
+  0-4         Set priority
+              P0 critical, P1 high, P2 normal, P3 low, P4 lowest
   s           Start a status change (see Two-Character Shortcuts)
   R           Rename issue (edit title)
   a           Create new issue (vim-style "add")
@@ -176,40 +179,105 @@ const helpText = `[yellow::b]bd-tui Keyboard Shortcuts[-::-]
   [limegreen]●[-]           Ready
   [gold]○[-]           Blocked
   [deepskyblue]◆[-]           In Progress
-  [gray]·[-]           Closed
+  [gray]·[-]           Closed`
 
-[gray]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[-]
-[yellow]Press ESC or ? to close this help[-]`
+// helpScrollPosition names where the reader is in the help body, in vim's
+// ruler vocabulary: All, Top, a percentage of the scrollable distance, Bot.
+//
+// offset is the first visible wrapped line, visible the number of rows on
+// screen, total the wrapped length of the whole document. Offsets outside the
+// document are clamped here, because tview clamps its own scroll offset while
+// drawing the body, which happens after this line has been composed.
+func helpScrollPosition(offset, visible, total int) string {
+	if visible <= 0 || total <= visible {
+		return "All"
+	}
+	if offset <= 0 {
+		return "Top"
+	}
+	last := total - visible
+	if offset >= last {
+		return "Bot"
+	}
+	return fmt.Sprintf("%d%%", offset*100/last)
+}
+
+// helpFooter is the help screen's bottom line. It is drawn outside the
+// scrolling body so it is on screen wherever the reader is. The hint it
+// replaces was the last line of helpText, roughly 190 lines below the fold on
+// an 80x24 terminal, so nothing visible said the screen scrolled at all.
+func helpFooter(offset, visible, total int) string {
+	return fmt.Sprintf(" [gray]%-4s  ↑/↓ PgUp/PgDn scroll[-]  [yellow]ESC or ? closes[-]",
+		helpScrollPosition(offset, visible, total))
+}
 
 // ShowHelpScreen displays the keyboard shortcuts help screen
 func (h *DialogHelpers) ShowHelpScreen() {
-	// Create help text view
-	helpTextView := tview.NewTextView().
+	body := tview.NewTextView().
 		SetDynamicColors(true).
 		SetText(helpText).
 		SetTextAlign(tview.AlignLeft)
-	helpTextView.SetBorder(true).
+
+	// Wrapping decides how long the document is, so the count is kept against
+	// the width it was measured at and reused until the terminal changes size.
+	measuredWidth, measuredLines := -1, 0
+	wrappedLines := func(width int) int {
+		if width != measuredWidth {
+			measuredWidth, measuredLines = width, len(tview.WordWrap(helpText, width))
+		}
+		return measuredLines
+	}
+
+	// The footer composes itself at draw time from the body's scroll offset.
+	// tview's Flex draws the focused item last, so the body's rect is already
+	// assigned by the time this runs, and its offset is the one the body is
+	// about to render.
+	footer := tview.NewTextView().SetDynamicColors(true)
+	footer.SetDrawFunc(func(_ tcell.Screen, x, y, width, height int) (int, int, int, int) {
+		_, _, bodyWidth, bodyHeight := body.GetInnerRect()
+		offset, _ := body.GetScrollOffset()
+		footer.SetText(helpFooter(offset, bodyHeight, wrappedLines(bodyWidth)))
+		return x, y, width, height
+	})
+
+	// The frame takes the whole page below the status bar rather than the
+	// centered half it used to. At half an 80-column terminal these 76-column
+	// lines wrapped into two, roughly doubling the distance to scroll.
+	frame := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(body, 0, 1, true).
+		AddItem(footer, 1, 0, false)
+	frame.SetBorder(true).
 		SetTitle(" Help - Keyboard Shortcuts ").
 		SetTitleAlign(tview.AlignCenter)
 
-	// Create modal (centered)
-	modal := tview.NewFlex().
-		AddItem(nil, 0, 1, false).
-		AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
-			AddItem(nil, 0, 1, false).
-			AddItem(helpTextView, 0, 3, true).
-			AddItem(nil, 0, 1, false), 0, 2, true).
-		AddItem(nil, 0, 1, false)
-
-	// Add input capture to close on ESC, q, or ?
-	modal.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		if event.Key() == tcell.KeyEscape || (event.Key() == tcell.KeyRune && (event.Rune() == '?' || event.Rune() == 'q')) {
+	frame.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		isRune := event.Key() == tcell.KeyRune
+		switch {
+		case event.Key() == tcell.KeyEscape, isRune && (event.Rune() == '?' || event.Rune() == 'q'):
 			h.Pages.RemovePage("help")
 			h.App.SetFocus(h.IssueList)
+			return nil
+		case event.Key() == tcell.KeyEnd, isRune && event.Rune() == 'G':
+			// tview's own End scrolls by tracking the end of the text, which it
+			// resolves while drawing the body — after the footer has composed
+			// its position field. Scrolling to a computed offset instead keeps
+			// the two in step.
+			_, _, bodyWidth, bodyHeight := body.GetInnerRect()
+			bottom := wrappedLines(bodyWidth) - bodyHeight
+			if bottom < 0 {
+				bottom = 0
+			}
+			body.ScrollTo(bottom, 0)
 			return nil
 		}
 		return event
 	})
+
+	// The empty first row is what leaves the status bar, which the main page
+	// draws underneath, showing while the help is up.
+	modal := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(nil, 1, 0, false).
+		AddItem(frame, 0, 1, true)
 
 	h.Pages.AddPage("help", modal, true, true)
 	h.App.SetFocus(modal)
