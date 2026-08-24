@@ -37,7 +37,7 @@ func renderTimeGroups(
 
 		for _, issue := range group.Issues {
 			icon, _ := issueStatus(appState, issue)
-			issueList.AddItem(formatIssueListItem(issue, icon, showPrefix), "", 0, nil)
+			issueList.AddItem(formatIssueListItem(issue, icon, showPrefix, appState.Identity()), "", 0, nil)
 			indexToIssue[*currentIndex] = issue
 			*currentIndex++
 		}

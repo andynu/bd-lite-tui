@@ -283,6 +283,19 @@ the main page is in front; while a dialog is up, focus belongs to it.
 - In Paged mode focus also decides which panel is mounted, so Tab/Enter is how
   you turn the page
 
+**Names on a row:** a dimmed `@name` is the assignee, a dimmed `+name` the
+filer. `formatAssigneeSuffix` and `formatCreatorSuffix` in
+`internal/ui/render.go` draw them, and every flat and tree row goes through
+both.
+
+The two are asymmetric on purpose (tui-dfqm). The assignee is sparse and always
+shown; `created_by` is on every issue bd-lite writes, so a row prints it only
+when the filer is someone other than the current identity — otherwise it costs a
+name's width on every line to repeat what is true of nearly all of them. An
+issue with an empty `created_by` (anything bd-lite wrote before it stamped the
+field) prints nothing rather than a guessed name, and an unresolved identity
+makes every filer a stranger, so every name shows.
+
 **Quick issue updates:** Issues can be updated directly from the TUI without leaving the interface:
 - **Priority changes:** Press `0`-`4` to instantly set priority (P0=critical, P1=high, P2=medium, P3=low, P4=backlog)
 - **Status chord:** Press `s`, then one of `o`/`i`/`b`/`c` for open, in_progress,
@@ -290,8 +303,8 @@ the main page is in front; while a dialog is up, focus belongs to it.
   cycles status, and the prefix is lowercase — uppercase `S` opens the stats
   dashboard.)
 - **Auto-claim on `si`:** moving an issue to in_progress also passes
-  `--assignee <git user.name>` in the same `bd update` call, but only when the
-  issue has no assignee. An issue someone else holds is never reassigned.
+  `--assignee <identity>` in the same `bd update` call, but only when the issue
+  has no assignee. An issue someone else holds is never reassigned.
 - **Immediate feedback:** Confirmation message shown in status bar with green checkmark
 - **Auto-refresh:** Issue list automatically refreshes 500ms after update to show changes
 - **No dialogs:** Updates are instant with single keypress, no confirmation needed
@@ -406,12 +419,18 @@ returns no error when it does nothing.
 - No UI concerns - pure business logic
 
 **`internal/identity/`** - Who the TUI acts as
-- `Resolve(dir)` reads `git user.name`; "" means unknown, which disables
-  auto-claim and the "mine" filter rather than guessing
+- `Resolve(dir)` reads `git user.name`, then `$USER` — the tail of the chain
+  bd-lite walks when it stamps `created_by`, so a store written without a git
+  name still reads back as this human's. `BD_ACTOR` is deliberately not
+  consulted: it overrides one bd invocation, it does not describe who is here.
+  "" means unknown, which disables auto-claim and the "mine" filter rather than
+  guessing
 - `Human("andy/claude-xyz")` is "andy": an agent may tag itself after a slash,
   but the value always carries its human
 - `IsMine` answers what `bd list --assignee` cannot, since bd matches the whole
-  string exactly and would miss the tagged form
+  string exactly and would miss the tagged form. It reads any name recorded on
+  an issue, not just the assignee: `internal/ui` asks it about `created_by` to
+  decide whether a row names its filer
 - `cmd/bd-tui/tui.go` calls it through the `resolveIdentity` package var, which
   tests swap so no assertion depends on the developer's git config
 

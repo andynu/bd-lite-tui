@@ -73,12 +73,14 @@ const helpText = `[yellow::b]bd-tui Keyboard Shortcuts[-::-]
   The s prefix is lowercase, and expires after 2 seconds.
   (Uppercase S opens the statistics dashboard.)
 
-  si also claims the issue for you (git user.name) when it has
-  no assignee. An issue someone else holds is never reassigned.
+  si also claims the issue for you when it has no assignee. An
+  issue someone else holds is never reassigned.
 
-[cyan::b]Assignees[-::-]
-  Rows show a dimmed @name when an issue is assigned. Identity is
-  always git user.name; an agent may tag itself after a slash
+[cyan::b]Names on a row[-::-]
+  A dimmed @name is who holds the issue. A dimmed +name is who
+  filed it, and only appears when that was someone other than
+  you. Identity is git user.name, or $USER when git has no name
+  to give; an agent may tag itself after a slash
   ("andy/claude-xyz"), which still counts as andy's.
 
   A           Assign issue (set or clear, autocompletes known names)

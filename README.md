@@ -143,12 +143,19 @@ expires 2 seconds after `s`, and any second key other than o/i/b/c cancels it.
 `si` also claims the issue for you when it has no assignee. An issue someone
 else holds keeps its assignee.
 
-### Assignees
+### Names on a row
 
-Issue rows carry a dimmed `@name` when an issue is assigned. Identity is always
-`git user.name`; an agent may tag itself after a slash (`andy/claude-xyz`), and
-that still counts as andy's. With `user.name` unset, auto-claim and the `mine`
-filter are disabled rather than guessing at a name.
+A dimmed `@name` is who holds an issue. A dimmed `+name` is who filed it, and
+appears only when that was someone else: every issue has a filer, so printing
+all of them would spend a name's width on every row to repeat what is true of
+nearly all of them. An issue with no `created_by` at all — anything bd-lite
+wrote before it stamped the field — gets no `+name` rather than a guessed one.
+
+Identity is `git user.name`, falling back to `$USER`, which is the tail of the
+chain bd-lite itself walks when it stamps `created_by`. An agent may tag itself
+after a slash (`andy/claude-xyz`), and that still counts as andy's. With neither
+source set, auto-claim and the `mine` filter are disabled rather than guessing
+at a name, and every filer reads as a stranger.
 
 - `A` - Assign issue (set or clear, autocompletes from names already in use)
 - `f` then `mine` - Only issues assigned to you
@@ -498,9 +505,11 @@ bd comment tui-xyz "Your comment text"
 - Status icon and emoji rendering
 
 **`internal/identity/`** - Who the TUI acts as
-- Reads `git user.name`; unset disables auto-claim and the `mine` filter rather
-  than guessing at a name
+- Reads `git user.name`, then `$USER`; neither set disables auto-claim and the
+  `mine` filter rather than guessing at a name
 - Treats `andy/claude-xyz` as andy, which `bd list --assignee` cannot do
+- Answers the same question of a `created_by`, which decides whether a row names
+  its filer
 
 **`internal/layout/`** - Screen arrangement
 - Pure `Resolve(width, pin, pinned)` returning Columns, Rows, or Paged

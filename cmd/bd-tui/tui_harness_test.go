@@ -688,6 +688,12 @@ func withAssignee(assignee string) func(*parser.Issue) {
 	return func(i *parser.Issue) { i.Assignee = assignee }
 }
 
+// withCreatedBy sets who filed the issue. Fixtures leave it empty by default,
+// which is the shape of every issue bd-lite wrote before it stamped the field.
+func withCreatedBy(creator string) func(*parser.Issue) {
+	return func(i *parser.Issue) { i.CreatedBy = creator }
+}
+
 // withCreatedAt sets the creation timestamp, which is what the Created view
 // groups on. UpdatedAt follows it so an issue does not look edited after it was
 // created.

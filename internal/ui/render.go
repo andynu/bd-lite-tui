@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/andynu/bd-lite-tui/internal/formatting"
+	"github.com/andynu/bd-lite-tui/internal/identity"
 	"github.com/andynu/bd-lite-tui/internal/parser"
 	"github.com/andynu/bd-lite-tui/internal/state"
 	"github.com/rivo/tview"
@@ -32,6 +33,10 @@ func PopulateIssueList(
 		delete(indexToIssue, k)
 	}
 	currentIndex := 0
+
+	// Rows name whoever filed an issue only when that is not me, so the row
+	// formatter needs to know who I am.
+	me := appState.Identity()
 
 	// Show filter indicator when filters are active
 	if appState.HasActiveFilters() {
@@ -71,7 +76,7 @@ func PopulateIssueList(
 			currentIndex++
 
 			for _, issue := range inProgressIssues {
-				text := formatIssueListItem(issue, "◆", showPrefix)
+				text := formatIssueListItem(issue, "◆", showPrefix, me)
 				issueList.AddItem(text, "", 0, nil)
 				indexToIssue[currentIndex] = issue
 				currentIndex++
@@ -86,7 +91,7 @@ func PopulateIssueList(
 			currentIndex++
 
 			for _, issue := range readyIssues {
-				text := formatIssueListItem(issue, "●", showPrefix)
+				text := formatIssueListItem(issue, "●", showPrefix, me)
 				issueList.AddItem(text, "", 0, nil)
 				indexToIssue[currentIndex] = issue
 				currentIndex++
@@ -101,7 +106,7 @@ func PopulateIssueList(
 			currentIndex++
 
 			for _, issue := range blockedIssues {
-				text := formatIssueListItem(issue, "○", showPrefix)
+				text := formatIssueListItem(issue, "○", showPrefix, me)
 				issueList.AddItem(text, "", 0, nil)
 				indexToIssue[currentIndex] = issue
 				currentIndex++
@@ -117,7 +122,7 @@ func PopulateIssueList(
 				currentIndex++
 
 				for _, issue := range closedIssues {
-					text := formatIssueListItem(issue, "✓", showPrefix)
+					text := formatIssueListItem(issue, "✓", showPrefix, me)
 					issueList.AddItem(text, "", 0, nil)
 					indexToIssue[currentIndex] = issue
 					currentIndex++
@@ -140,8 +145,10 @@ func PopulateIssueList(
 	}
 }
 
-// formatIssueListItem formats a single issue for the list view
-func formatIssueListItem(issue *parser.Issue, statusIcon string, showPrefix bool) string {
+// formatIssueListItem formats a single issue for the list view. me is the
+// identity the TUI acts as, which decides whether the filer's name is worth a
+// place on the row; see formatCreatorSuffix.
+func formatIssueListItem(issue *parser.Issue, statusIcon string, showPrefix bool, me string) string {
 	priorityColor := formatting.GetPriorityColor(issue.Priority)
 	typeIcon := formatting.GetTypeIcon(issue.IssueType)
 	displayID := formatting.FormatIssueID(issue.ID, showPrefix)
@@ -152,6 +159,7 @@ func formatIssueListItem(issue *parser.Issue, statusIcon string, showPrefix bool
 	text := fmt.Sprintf("  [%s]%s[-] %s %s [P%d[] %s",
 		priorityColor, statusIcon, typeIcon, tview.Escape(displayID), issue.Priority, tview.Escape(issue.Title))
 
+	text += formatCreatorSuffix(issue, me)
 	text += formatAssigneeSuffix(issue)
 
 	// Add labels if present
@@ -178,6 +186,26 @@ func formatAssigneeSuffix(issue *parser.Issue) string {
 		return ""
 	}
 	return fmt.Sprintf(" [%s]@%s[-]", formatting.GetMutedColor(), tview.Escape(issue.Assignee))
+}
+
+// formatCreatorSuffix renders who filed the issue as a dimmed "+name", and ""
+// when that is me or when the issue carries no created_by.
+//
+// Unlike the assignee, my own name is suppressed on purpose (tui-dfqm). Every
+// issue has a filer, so printing all of them spends a name's width on every row
+// to repeat what is true of nearly all of them; someone else's name is the whole
+// reason the field earns a place on the row. An issue with no created_by — one
+// bd-lite wrote before it stamped the field — renders nothing rather than
+// guessing a name onto it. With no identity resolved, every filer is a stranger
+// and every name shows, which is the honest reading of not knowing who I am.
+//
+// created_by is user-controlled, so it is escaped for the same reason titles,
+// labels and assignees are.
+func formatCreatorSuffix(issue *parser.Issue, me string) string {
+	if issue.CreatedBy == "" || identity.IsMine(issue.CreatedBy, me) {
+		return ""
+	}
+	return fmt.Sprintf(" [%s]+%s[-]", formatting.GetMutedColor(), tview.Escape(issue.CreatedBy))
 }
 
 // issueStatus returns the glyph and color for an issue's effective status.
@@ -251,6 +279,7 @@ func renderTreeNode(
 	text := fmt.Sprintf("%s%s%s[%s]%s[-] %s [%s]%s[-] [P%d[] %s",
 		prefix, branch, collapseIndicator, statusColor, statusIcon, typeIcon, priorityColor, tview.Escape(displayID), issue.Priority, tview.Escape(issue.Title))
 
+	text += formatCreatorSuffix(issue, appState.Identity())
 	text += formatAssigneeSuffix(issue)
 
 	// Add child count for collapsed nodes

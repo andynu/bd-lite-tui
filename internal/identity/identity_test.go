@@ -59,61 +59,87 @@ func TestIsMine(t *testing.T) {
 }
 
 // Resolve reads user.name out of the repository it is pointed at, not the
-// developer's global config.
+// developer's global config and not the environment.
 func TestResolve_ReadsRepoConfig(t *testing.T) {
 	requireGit(t)
 
 	dir := t.TempDir()
 	gitIn(t, dir, "init")
 	gitIn(t, dir, "config", "user.name", "Repo Local Name")
+	t.Setenv("USER", "envuser")
 
 	if got := Resolve(dir); got != "Repo Local Name" {
 		t.Errorf("Resolve(%q) = %q, want %q", dir, got, "Repo Local Name")
 	}
 }
 
-// An unset user.name yields "", the signal callers use to disable auto-claim
-// and "mine" filtering. HOME and the system config are redirected so a global
-// user.name on the machine running the test cannot leak in.
-func TestResolve_UnsetYieldsEmpty(t *testing.T) {
+// With user.name unset, $USER answers instead — the same tail bd-lite falls back
+// to when it stamps created_by, so the two agree on who this is. HOME and the
+// system config are redirected so a global user.name on the machine running the
+// test cannot leak in.
+func TestResolve_FallsBackToUSER(t *testing.T) {
 	requireGit(t)
 
 	dir := t.TempDir()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, "gitconfig-absent"))
-	t.Setenv("GIT_CONFIG_SYSTEM", filepath.Join(home, "gitconfig-absent"))
+	hideGitConfig(t)
+	t.Setenv("USER", "envuser")
+	gitIn(t, dir, "init")
+
+	if got := Resolve(dir); got != "envuser" {
+		t.Errorf("Resolve with no user.name = %q, want %q", got, "envuser")
+	}
+}
+
+// Neither source having a name yields "", the signal callers use to disable
+// auto-claim and "mine" filtering.
+func TestResolve_UnsetEverywhereYieldsEmpty(t *testing.T) {
+	requireGit(t)
+
+	dir := t.TempDir()
+	hideGitConfig(t)
+	t.Setenv("USER", "")
 	gitIn(t, dir, "init")
 
 	if got := Resolve(dir); got != "" {
-		t.Errorf("Resolve with no user.name = %q, want %q", got, "")
+		t.Errorf("Resolve with no user.name and no $USER = %q, want %q", got, "")
 	}
 }
 
-// Pointing Resolve somewhere that is not a repository is not an error, it is
-// simply an unknown identity.
+// Pointing Resolve somewhere that is not a repository is not an error: git has
+// no answer, so $USER gives one.
 func TestResolve_OutsideARepository(t *testing.T) {
 	requireGit(t)
 
+	hideGitConfig(t)
+	t.Setenv("USER", "envuser")
+
+	if got := Resolve(t.TempDir()); got != "envuser" {
+		t.Errorf("Resolve outside a repo = %q, want %q", got, "envuser")
+	}
+}
+
+// A directory that does not exist falls back rather than panicking or hanging.
+func TestResolve_MissingDirectory(t *testing.T) {
+	requireGit(t)
+
+	hideGitConfig(t)
+	t.Setenv("USER", "envuser")
+
+	if got := Resolve(filepath.Join(t.TempDir(), "does-not-exist")); got != "envuser" {
+		t.Errorf("Resolve of a missing dir = %q, want %q", got, "envuser")
+	}
+}
+
+// hideGitConfig points git at config files that do not exist, so a user.name
+// configured on the machine running the test cannot answer for the repository
+// under test.
+func hideGitConfig(t *testing.T) {
+	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(home, "gitconfig-absent"))
 	t.Setenv("GIT_CONFIG_SYSTEM", filepath.Join(home, "gitconfig-absent"))
-
-	if got := Resolve(t.TempDir()); got != "" {
-		t.Errorf("Resolve outside a repo = %q, want %q", got, "")
-	}
-}
-
-// A directory that does not exist yields "" rather than a panic or a hang.
-func TestResolve_MissingDirectory(t *testing.T) {
-	requireGit(t)
-
-	if got := Resolve(filepath.Join(t.TempDir(), "does-not-exist")); got != "" {
-		t.Errorf("Resolve of a missing dir = %q, want %q", got, "")
-	}
 }
 
 func requireGit(t *testing.T) {
