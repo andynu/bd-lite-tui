@@ -68,6 +68,14 @@ func PopulateIssueList(
 		renderTimeGroups(issueList, appState, groups, showPrefix, &currentIndex, indexToIssue)
 	default:
 		// List view (original behavior)
+		//
+		// Group headers sit flush against the row above them. A tview List item
+		// is one screen row, so a "\n" in the item text renders as nothing at
+		// all (tui-h9l3); a real separator would have to be its own empty item,
+		// which costs a screen row per group and another dead stop for the j/k
+		// cursor. The headers are bold, colored, glyph-prefixed and unindented
+		// against two-space-indented rows, which is separation enough.
+		//
 		// Add in-progress issues first (most important)
 		inProgressIssues := appState.GetInProgressIssues()
 		if len(inProgressIssues) > 0 {
@@ -87,7 +95,7 @@ func PopulateIssueList(
 		readyIssues := appState.GetReadyIssues()
 		if len(readyIssues) > 0 {
 			openColor := formatting.GetStatusColor(parser.StatusOpen)
-			issueList.AddItem(fmt.Sprintf("\n[%s::b]⬤ READY (%d)[-::-]", openColor, len(readyIssues)), "", 0, nil)
+			issueList.AddItem(fmt.Sprintf("[%s::b]⬤ READY (%d)[-::-]", openColor, len(readyIssues)), "", 0, nil)
 			currentIndex++
 
 			for _, issue := range readyIssues {
@@ -102,7 +110,7 @@ func PopulateIssueList(
 		blockedIssues := appState.GetBlockedIssues()
 		if len(blockedIssues) > 0 {
 			blockedColor := formatting.GetStatusColor(parser.StatusBlocked)
-			issueList.AddItem(fmt.Sprintf("\n[%s::b]⬤ BLOCKED (%d)[-::-]", blockedColor, len(blockedIssues)), "", 0, nil)
+			issueList.AddItem(fmt.Sprintf("[%s::b]⬤ BLOCKED (%d)[-::-]", blockedColor, len(blockedIssues)), "", 0, nil)
 			currentIndex++
 
 			for _, issue := range blockedIssues {
@@ -118,7 +126,7 @@ func PopulateIssueList(
 			closedIssues := appState.GetClosedIssues()
 			if len(closedIssues) > 0 {
 				closedColor := formatting.GetStatusColor(parser.StatusClosed)
-				issueList.AddItem(fmt.Sprintf("\n[%s::b]⬤ CLOSED (%d)[-::-]", closedColor, len(closedIssues)), "", 0, nil)
+				issueList.AddItem(fmt.Sprintf("[%s::b]⬤ CLOSED (%d)[-::-]", closedColor, len(closedIssues)), "", 0, nil)
 				currentIndex++
 
 				for _, issue := range closedIssues {
@@ -136,10 +144,10 @@ func PopulateIssueList(
 		mutedColor := formatting.GetMutedColor()
 		emphasisColor := formatting.GetEmphasisColor()
 		if appState.HasActiveFilters() {
-			issueList.AddItem(fmt.Sprintf("\n  [%s]No issues match current filters[-]", mutedColor), "", 0, nil)
+			issueList.AddItem(fmt.Sprintf("  [%s]No issues match current filters[-]", mutedColor), "", 0, nil)
 			issueList.AddItem(fmt.Sprintf("  [%s]Press 'f' to modify filters[-]", emphasisColor), "", 0, nil)
 		} else {
-			issueList.AddItem(fmt.Sprintf("\n  [%s]No issues found[-]", mutedColor), "", 0, nil)
+			issueList.AddItem(fmt.Sprintf("  [%s]No issues found[-]", mutedColor), "", 0, nil)
 			issueList.AddItem(fmt.Sprintf("  [%s]Press 'a' to create an issue[-]", emphasisColor), "", 0, nil)
 		}
 	}

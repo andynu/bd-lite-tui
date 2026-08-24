@@ -29,8 +29,8 @@ func renderTimeGroups(
 
 	for _, group := range groups {
 		// Headers are uppercased to read as the same kind of row the status
-		// groups draw. No leading newline: the status headers carry one, but a
-		// tview List item is a single line and it renders as nothing.
+		// groups draw, and carry no blank spacer row above them for the same
+		// reason those don't.
 		issueList.AddItem(fmt.Sprintf("[%s::b]⬤ %s (%d)[-::-]",
 			accentColor, strings.ToUpper(group.Bucket.Label()), len(group.Issues)), "", 0, nil)
 		*currentIndex++
