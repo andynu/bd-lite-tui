@@ -73,6 +73,10 @@ type harness struct {
 	// bdRespond, when set, overrides the default fake bd behavior.
 	bdRespond func(args []string) (*BdCommandResult, error)
 
+	// now is the clock the app buckets against, so the fake bd can stamp
+	// updated_at the same way the view reads it.
+	now func() time.Time
+
 	mu      sync.Mutex
 	barrier chan struct{}
 
@@ -190,6 +194,11 @@ func newHarness(t *testing.T, issues []*parser.Issue, opts ...harnessOption) *ha
 	}
 	for _, opt := range opts {
 		opt(&cfg)
+	}
+
+	h.now = cfg.tui.Now
+	if h.now == nil {
+		h.now = time.Now
 	}
 
 	if !cfg.noStoreFile {
@@ -556,6 +565,9 @@ func (h *harness) fakeBd(args ...string) (*BdCommandResult, error) {
 			issue.Assignee = args[i+1]
 		}
 	}
+	// bd-lite stamps updated_at on every write, which is what moves a row
+	// between buckets in the Updated view.
+	issue.UpdatedAt = h.now()
 	h.writeJSONL()
 
 	return &BdCommandResult{Issues: []parser.Issue{*issue}}, nil
@@ -660,6 +672,14 @@ func withCreatedAt(t time.Time) func(*parser.Issue) {
 		i.CreatedAt = t
 		i.UpdatedAt = t
 	}
+}
+
+// withUpdatedAt sets the last-touched timestamp, which is what the Updated view
+// groups on. CreatedAt is deliberately left alone: the Updated view fixtures
+// rely on it staying at fixtureTime so a renderer that keyed the wrong field
+// would pile every row into one bucket and fail the test.
+func withUpdatedAt(t time.Time) func(*parser.Issue) {
+	return func(i *parser.Issue) { i.UpdatedAt = t }
 }
 
 // withBlockedBy makes the issue depend on blockerID, so it lands in the blocked

@@ -240,8 +240,11 @@ the handler before assigning its own `currentItem`, so the handler calls
   created — `TODAY`, `YESTERDAY`, `THIS WEEK`, and so on, newest bucket first,
   newest issue first within a bucket. Empty buckets are omitted. `C` and `f`
   apply here exactly as in list view.
-- **Updated View:** the same idea keyed on `updated_at`. Its renderer is still
-  open work (tui-eym1), so it currently draws the status-grouped list.
+- **Updated View:** the same buckets keyed on `updated_at`. bd-lite restamps
+  that field on every write, so a row changes bucket while the TUI is open;
+  `populateIssueList` rebuilds the grouping from scratch on each refresh rather
+  than repainting rows in place, which is what moves the row you just edited to
+  the top of `TODAY`.
 - `t` advances the cycle; `--view list|tree|created|updated` picks the
   starting mode and rejects anything else. `state.NextViewMode` names the
   next mode without switching to it, which is what the list border shows.

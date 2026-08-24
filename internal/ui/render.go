@@ -42,9 +42,7 @@ func PopulateIssueList(
 		currentIndex++
 	}
 
-	// Check view mode. ViewUpdated falls through to the status-grouped list
-	// until its renderer lands (tui-eym1); it changes the grouping, not the
-	// row rendering.
+	// Check view mode.
 	switch appState.GetViewMode() {
 	case state.ViewTree:
 		// Tree view
@@ -59,6 +57,9 @@ func PopulateIssueList(
 		}
 	case state.ViewCreated:
 		groups := appState.GroupByTime(state.CreatedAt, now, showClosedIssues)
+		renderTimeGroups(issueList, appState, groups, showPrefix, &currentIndex, indexToIssue)
+	case state.ViewUpdated:
+		groups := appState.GroupByTime(state.UpdatedAt, now, showClosedIssues)
 		renderTimeGroups(issueList, appState, groups, showPrefix, &currentIndex, indexToIssue)
 	default:
 		// List view (original behavior)

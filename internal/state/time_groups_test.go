@@ -135,3 +135,23 @@ func TestGroupByTimeMixesStatusesInOneBucket(t *testing.T) {
 		t.Errorf("GroupByTime = %s, want all three in Today, newest first", got)
 	}
 }
+
+// The Updated view is the same call with the other key, so the two views can
+// disagree about which bucket an issue belongs in.
+func TestGroupByTimeKeysOnUpdatedAt(t *testing.T) {
+	touched := func(updated time.Time) func(*parser.Issue) {
+		return func(i *parser.Issue) { i.UpdatedAt = updated }
+	}
+	s := New()
+	s.LoadIssues([]*parser.Issue{
+		groupIssue("i-old", at(2026, 1, 5, 9), touched(at(2026, 3, 18, 9))),
+		groupIssue("i-new", at(2026, 3, 18, 8), touched(at(2026, 3, 17, 20))),
+	})
+
+	if got := summarize(s.GroupByTime(CreatedAt, groupNow, false)); got != "Today:i-new|Older:i-old" {
+		t.Errorf("GroupByTime(CreatedAt) = %s, want Today:i-new|Older:i-old", got)
+	}
+	if got := summarize(s.GroupByTime(UpdatedAt, groupNow, false)); got != "Today:i-old|Yesterday:i-new" {
+		t.Errorf("GroupByTime(UpdatedAt) = %s, want Today:i-old|Yesterday:i-new", got)
+	}
+}

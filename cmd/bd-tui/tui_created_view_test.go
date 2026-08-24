@@ -34,13 +34,17 @@ func createdIssues() []*parser.Issue {
 	}
 }
 
-// createdHeaders are the group headers, in the order the view must draw them.
-var createdHeaders = []string{"TODAY", "YESTERDAY", "THIS WEEK", "LAST WEEK", "THIS MONTH", "OLDER", "UNDATED"}
+// timeBucketHeaders are the group headers, in the order a time-keyed view must
+// draw them. Both the Created and the Updated view render this set.
+var timeBucketHeaders = []string{"TODAY", "YESTERDAY", "THIS WEEK", "LAST WEEK", "THIS MONTH", "OLDER", "UNDATED"}
 
 // sectionsOnScreen splits the rendered screen into header -> rows sections, in
 // screen order. Reading it back off the screen rather than out of the widget is
 // the point: it is what the user sees, tview's tag parsing included.
-func sectionsOnScreen(t *testing.T, h *harness) ([]string, map[string][]string) {
+//
+// issues is the fixture whose ids the rows are matched against, so the same
+// reader serves both time-keyed views.
+func sectionsOnScreen(t *testing.T, h *harness, issues []*parser.Issue) ([]string, map[string][]string) {
 	t.Helper()
 
 	var order []string
@@ -55,7 +59,7 @@ func sectionsOnScreen(t *testing.T, h *harness) ([]string, map[string][]string) 
 		if current == "" {
 			continue
 		}
-		if id := issueIDOnLine(line); id != "" {
+		if id := issueIDOnLine(line, issues); id != "" {
 			rows[current] = append(rows[current], id)
 		}
 	}
@@ -64,7 +68,7 @@ func sectionsOnScreen(t *testing.T, h *harness) ([]string, map[string][]string) 
 
 // headerOnLine returns the bucket header a rendered line carries, or "".
 func headerOnLine(line string) string {
-	for _, header := range createdHeaders {
+	for _, header := range timeBucketHeaders {
 		if strings.Contains(line, "⬤ "+header+" (") {
 			return header
 		}
@@ -75,8 +79,8 @@ func headerOnLine(line string) string {
 // issueIDOnLine returns the fixture issue id a rendered line carries, or "".
 // Rows are truncated at the pane's width, but the id sits near the left edge
 // and always survives.
-func issueIDOnLine(line string) string {
-	for _, issue := range createdIssues() {
+func issueIDOnLine(line string, issues []*parser.Issue) string {
+	for _, issue := range issues {
 		if strings.Contains(line, issue.ID) {
 			return issue.ID
 		}
@@ -87,9 +91,9 @@ func issueIDOnLine(line string) string {
 func TestCreatedViewGroupsByBucket(t *testing.T) {
 	h := newHarness(t, createdIssues(), withView(state.ViewCreated), withNow(createdViewNow))
 
-	order, rows := sectionsOnScreen(t, h)
+	order, rows := sectionsOnScreen(t, h, createdIssues())
 
-	wantOrder := createdHeaders
+	wantOrder := timeBucketHeaders
 	if strings.Join(order, ",") != strings.Join(wantOrder, ",") {
 		t.Fatalf("group headers = %v, want %v\n%s", order, wantOrder, h.screenText())
 	}
@@ -122,7 +126,7 @@ func TestCreatedViewSkipsEmptyBuckets(t *testing.T) {
 	}
 	h := newHarness(t, issues, withView(state.ViewCreated), withNow(createdViewNow))
 
-	order, _ := sectionsOnScreen(t, h)
+	order, _ := sectionsOnScreen(t, h, issues)
 	if len(order) != 1 || order[0] != "TODAY" {
 		t.Fatalf("group headers = %v, want [TODAY] only\n%s", order, h.screenText())
 	}
@@ -160,7 +164,7 @@ func TestCreatedViewClosedToggle(t *testing.T) {
 
 	h.typeRunes("C")
 
-	_, rows := sectionsOnScreen(t, h)
+	_, rows := sectionsOnScreen(t, h, createdIssues())
 	want := []string{"tui-td2", "tui-cls", "tui-td1"} // 09:00, 08:00, 07:00
 	if got := strings.Join(rows["TODAY"], ","); got != strings.Join(want, ",") {
 		t.Errorf("rows under TODAY after C = %v, want %v\n%s", rows["TODAY"], want, h.screenText())
@@ -178,7 +182,7 @@ func TestCreatedViewRespectsQuickFilter(t *testing.T) {
 	h.typeRunes("p1")
 	h.key(tcell.KeyEnter)
 
-	order, rows := sectionsOnScreen(t, h)
+	order, rows := sectionsOnScreen(t, h, issues)
 	if len(order) != 1 || order[0] != "TODAY" {
 		t.Fatalf("group headers under a P1 filter = %v, want [TODAY]\n%s", order, h.screenText())
 	}

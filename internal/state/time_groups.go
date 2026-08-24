@@ -22,6 +22,11 @@ type TimeKey func(*parser.Issue) time.Time
 // CreatedAt keys the Created view.
 func CreatedAt(issue *parser.Issue) time.Time { return issue.CreatedAt }
 
+// UpdatedAt keys the Updated view. bd-lite bumps this on every write, so an
+// issue changes bucket while the TUI is open; the grouping is rebuilt from
+// scratch on each repopulate rather than patched in place.
+func UpdatedAt(issue *parser.Issue) time.Time { return issue.UpdatedAt }
+
 // GroupByTime buckets the currently visible issues by the timestamp key reads,
 // relative to now.
 //
