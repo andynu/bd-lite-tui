@@ -68,6 +68,23 @@ Navigate to a directory containing a `.beads` folder and run:
 
 The TUI will automatically find the `.beads/issues.jsonl` file in the current or parent directories.
 
+### Command Line Options
+
+| Flag | Values | Effect |
+|------|--------|--------|
+| `--view <mode>` | `list`, `tree`, `created`, `updated` | Start in that view mode (default `list`). An unrecognized value is an error, not a fallback. |
+| `--theme <name>` | see [Visual Design](#visual-design) | Color theme; also settable via `$BEADS_THEME` or `~/.bd-tui/config.json` |
+| `--issue <id>` | an issue ID | Show only that issue |
+| `--debug` | — | Write a diagnostic log (see below) |
+
+```bash
+./bd-tui --view updated          # open on what changed most recently
+./bd-tui --view tree --theme nord
+```
+
+`t` cycles the view mode from wherever `--view` started it. See
+[View modes](#view-modes) for what each one groups by.
+
 ### Debug Mode
 
 Run with comprehensive diagnostic logging:
@@ -144,7 +161,7 @@ filter are disabled rather than guessing at a name.
 - `O` - Expand all nodes (tree view)
 - `Z` - Collapse all nodes (tree view)
 - `v` - Cycle layout: auto → columns → rows → paged → auto
-- `C` - Toggle showing closed issues in list view
+- `C` - Toggle showing closed issues
 - `p` - Toggle the issue ID prefix (`tui-abc` vs `abc`)
 - `f` - Quick filter (type: `p1 bug`, `feature`, etc.)
 - `S` - Show statistics dashboard
@@ -156,6 +173,32 @@ Fold state persists per repository in `~/.bd-tui/collapse-<hash>.json`.
 With mouse mode on, clicking an issue row selects it. On a terminal narrow
 enough for the paged layout it also opens that issue's detail, the same as
 pressing Enter, since the detail panel is not on screen otherwise.
+
+#### View modes
+
+`t` cycles through four modes, and `--view` starts in one of them. All four draw
+the same rows and differ only in how those rows are grouped. The list border
+names the mode `t` goes to next.
+
+| Mode | Grouping |
+|------|----------|
+| `list` | By status: in progress, then ready, then blocked (the default) |
+| `tree` | By dependency, as a foldable hierarchy |
+| `created` | By `created_at` age, newest bucket first |
+| `updated` | By `updated_at` age, same buckets |
+
+The two time-keyed modes bucket into `Today`, `Yesterday`, `This week`,
+`Last week`, `This month`, `Older`, and `Undated`, newest bucket first and
+newest issue first inside a bucket. Empty buckets are omitted rather than
+rendered as bare headers. Week boundaries open on Monday (ISO 8601) in the
+local zone.
+
+bd stamps `updated_at` on every write, so in `updated` an issue changes bucket
+while the TUI is open: whatever you just edited, or another process just wrote,
+lands at the top of `Today` on the next refresh.
+
+`C` and `f` shape the three flat modes. Tree view ignores both — it never shows
+closed issues and always draws the whole graph.
 
 ### Detail Panel (when focused)
 - `Tab` / `ESC` / `←` - Return focus to issue list
@@ -241,6 +284,7 @@ bd-lite-tui/
 │   ├── state/           # Issue categorization, filtering, tree building
 │   ├── storage/         # .beads discovery and the JSONL file reader
 │   ├── theme/           # Built-in and TOML themes
+│   ├── timegroup/       # Timestamp -> relative bucket (Today, This week, ...)
 │   ├── ui/              # Issue list, tree, and time-grouped rendering
 │   └── watcher/         # Filesystem monitoring with debouncing
 └── go.mod
@@ -471,6 +515,11 @@ bd comment tui-xyz "Your comment text"
 - Dependency graph building
 - Filter and search logic
 - Tree view structure building
+- View mode: `ViewList`, `ViewTree`, `ViewCreated`, `ViewUpdated`, with
+  `ParseViewMode` (the `--view` spellings) and `NextViewMode` (the `t` cycle)
+  both reading one `viewModes` slice
+- `GroupByTime` buckets the visible issues for the created and updated views,
+  taking the timestamp field as a function and `now` as a parameter
 
 **`internal/storage/`** - Data access
 - `FindBeadsDir` walks up from the working directory to locate `.beads`
@@ -479,6 +528,12 @@ bd comment tui-xyz "Your comment text"
 **`internal/theme/`** - Colors
 - Built-in themes and TOML theme files, selected by `--theme`, `$BEADS_THEME`,
   or `~/.bd-tui/config.json`. There is no theme-cycling key.
+
+**`internal/timegroup/`** - Relative time buckets
+- `Of(t, now)` maps a timestamp to Today, Yesterday, This week, Last week,
+  This month, Older, or Undated. `now` is a parameter, not a clock read
+- Bucket ordinals ascend newest to oldest, so `All()` walks them in header order
+- Week boundaries open on Monday (ISO 8601), drawn in `now`'s location
 
 **`internal/ui/`** - UI helpers
 - `PopulateIssueList` rebuilds the issue list; `renderTreeNode` draws tree view;

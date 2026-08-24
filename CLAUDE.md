@@ -246,8 +246,19 @@ the handler before assigning its own `currentItem`, so the handler calls
   than repainting rows in place, which is what moves the row you just edited to
   the top of `TODAY`.
 - `t` advances the cycle; `--view list|tree|created|updated` picks the
-  starting mode and rejects anything else. `state.NextViewMode` names the
-  next mode without switching to it, which is what the list border shows.
+  starting mode and rejects anything else (`main.go` exits 2 rather than
+  falling back to list). `state.NextViewMode` names the next mode without
+  switching to it, which is what the list border shows.
+
+`C` and `f` shape the three flat views only. Tree view reads neither: it walks
+`s.issues` in `buildDependencyTree` and skips closed issues unconditionally, so
+the closed toggle and the quick filter are inert there. Say "the flat views",
+not "list view", when documenting either key.
+
+`viewModes` in `internal/state/state.go` is the one list `String`,
+`ParseViewMode` and `NextViewMode` all read, so a fifth mode is one entry there,
+one case in `PopulateIssueList`, and the three doc places under "Changing
+Keybindings" below.
 
 **Layout modes:** `internal/layout` picks Columns, Rows, or Paged from the
 terminal width. Below `layout.NarrowThreshold` (90 columns) the result is always
@@ -346,7 +357,10 @@ returns no error when it does nothing.
 
 **`cmd/bd-tui/`** - TUI application
 - `main.go`: flags (`--debug`, `--theme`, `--view`, `--issue`), config and theme
-  resolution, log file setup, signal handling. No UI code.
+  resolution, log file setup, signal handling. No UI code. `--view` takes
+  `list`, `tree`, `created`, or `updated`; both the flag's usage string and the
+  parse go through `state.ViewModeNames`/`state.ParseViewMode`, so the accepted
+  spellings are never typed out here.
 - `tui.go`: `newTUI` builds the whole app from a `tuiOptions` struct — status
   bar, issue list, detail panel, `app.SetInputCapture` key bindings, the file
   watcher, and the refresh plumbing — without starting the event loop.
@@ -541,7 +555,8 @@ then detail-panel-focused mode, then normal mode.
 - `O`: Expand all nodes (tree view only)
 - `Z`: Collapse all nodes (tree view only)
 - `v`: Cycle layout pin (auto → Columns → Rows → Paged → auto)
-- `C`: Toggle showing closed issues
+- `C`: Toggle showing closed issues (flat views only; tree view always hides
+  them)
 - `m`: Toggle mouse mode on/off
 - `p`: Toggle issue ID prefix display (tui-abc vs abc)
 - `f`: Quick filter dialog

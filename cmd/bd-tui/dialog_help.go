@@ -5,11 +5,14 @@ import (
 	"github.com/rivo/tview"
 )
 
-// ShowHelpScreen displays the keyboard shortcuts help screen
-func (h *DialogHelpers) ShowHelpScreen() {
-	// Note: This help screen uses hardcoded colors for documentation purposes
-	// showing the current theme's colors as examples
-	helpText := `[yellow::b]bd-tui Keyboard Shortcuts[-::-]
+// helpText is the body of the `?` screen. It is a package-level const so
+// dialog_help_test.go can assert on it without standing up a dialog, which is
+// what keeps the view-mode names here from drifting away from
+// state.ViewModeNames().
+//
+// The colors are hardcoded rather than themed: this screen documents the
+// palette, so it has to show those colors whatever the active theme is.
+const helpText = `[yellow::b]bd-tui Keyboard Shortcuts[-::-]
 
 [green::b]Quick Start[-::-]
   j / k         Navigate up/down (or use arrow keys)
@@ -83,16 +86,10 @@ func (h *DialogHelpers) ShowHelpScreen() {
 [cyan::b]View Controls[-::-]
   t           Cycle view: list → tree → created → updated → list
   v           Cycle layout: auto → columns → rows → paged → auto
-
-  The layout follows the terminal width. Under 90 columns it
-  pages: the list and the detail each take the whole screen,
-  and Tab/Enter/ESC switch between them. A pinned layout (v)
-  is marked with * in the status bar and still gives way to
-  paging when the window is too narrow to split.
   o           Collapse/expand node in tree view (vim-style fold)
   O           Expand all nodes in tree view
   Z           Collapse all nodes in tree view
-  C           Toggle showing closed issues in list view
+  C           Toggle showing closed issues
   p           Toggle issue ID prefix (tui-abc vs abc)
   f           Quick filter (type: p1 bug, feature, etc.)
   S           Show statistics dashboard
@@ -100,6 +97,27 @@ func (h *DialogHelpers) ShowHelpScreen() {
   Click       Select an issue row; in the paged layout this also
               opens its detail, the same as Enter
   r           Manual refresh
+
+  The four views draw the same rows and differ only in grouping.
+  The list border names the mode t goes to next.
+
+    list      By status: in progress, then ready, then blocked.
+    tree      By dependency, as a foldable hierarchy.
+    created   By age, newest bucket first: Today, Yesterday,
+              This week, Last week, This month, Older, Undated.
+              Empty buckets are skipped.
+    updated   The same buckets keyed on when the issue was last
+              touched. bd stamps updated_at on every write, so
+              whatever you just edited moves to the top of Today.
+
+  C and f shape the three flat views. Tree view ignores both: it
+  never shows closed issues and always draws the whole graph.
+
+  The layout follows the terminal width. Under 90 columns it
+  pages: the list and the detail each take the whole screen,
+  and Tab/Enter/ESC switch between them. A pinned layout (v)
+  is marked with * in the status bar and still gives way to
+  paging when the window is too narrow to split.
 
 [cyan::b]Detail Panel (when focused)[-::-]
   j / ↓       Show the next issue (headers skipped)
@@ -163,6 +181,8 @@ func (h *DialogHelpers) ShowHelpScreen() {
 [gray]━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[-]
 [yellow]Press ESC or ? to close this help[-]`
 
+// ShowHelpScreen displays the keyboard shortcuts help screen
+func (h *DialogHelpers) ShowHelpScreen() {
 	// Create help text view
 	helpTextView := tview.NewTextView().
 		SetDynamicColors(true).
