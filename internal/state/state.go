@@ -770,10 +770,18 @@ func (s *State) buildDependencyTree() {
 					hasIncomingDep[issue.ID] = true
 				}
 			case parser.DepBlocks:
-				// issue depends on (is blocked by) dep.DependsOnID
-				blocker := s.issuesByID[dep.DependsOnID]
-				if blocker != nil && blocker.Status != parser.StatusClosed {
-					blockedByMap[dep.DependsOnID] = append(blockedByMap[dep.DependsOnID], issue)
+				target := s.issuesByID[dep.DependsOnID]
+				if target == nil || target.Status == parser.StatusClosed {
+					continue
+				}
+				if issue.IssueType == parser.TypeEpic {
+					// An epic lists its work as blocks deps (bd dep add <epic>
+					// <child>), so the target is a child, not the epic's blocker.
+					childrenMap[issue.ID] = append(childrenMap[issue.ID], target)
+					hasIncomingDep[target.ID] = true
+				} else {
+					// issue is blocked by target
+					blockedByMap[target.ID] = append(blockedByMap[target.ID], issue)
 					hasIncomingDep[issue.ID] = true
 				}
 			}

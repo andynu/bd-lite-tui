@@ -855,12 +855,12 @@ func TestEpicsAlwaysAtRootLevel(t *testing.T) {
 	state := New()
 	now := time.Now()
 
-	// Create an epic with a blocking dependency
-	// Epic should still appear at root level even though it has an incoming dependency
+	// An epic declared the child of a task would otherwise nest under it.
+	// Epics stay at root level regardless.
 	issues := []*parser.Issue{
 		{
-			ID:        "test-blocker",
-			Title:     "Blocker Issue",
+			ID:        "test-parent",
+			Title:     "Parent Issue",
 			Status:    parser.StatusOpen,
 			Priority:  1,
 			IssueType: parser.TypeTask,
@@ -869,7 +869,7 @@ func TestEpicsAlwaysAtRootLevel(t *testing.T) {
 		},
 		{
 			ID:        "test-epic",
-			Title:     "Epic with Blocker",
+			Title:     "Epic with a Parent",
 			Status:    parser.StatusOpen,
 			Priority:  0,
 			IssueType: parser.TypeEpic,
@@ -878,8 +878,8 @@ func TestEpicsAlwaysAtRootLevel(t *testing.T) {
 			Dependencies: []*parser.Dependency{
 				{
 					IssueID:     "test-epic",
-					DependsOnID: "test-blocker",
-					Type:        parser.DepBlocks,
+					DependsOnID: "test-parent",
+					Type:        parser.DepParentChild,
 					CreatedAt:   now,
 					CreatedBy:   "test",
 				},
@@ -910,9 +910,9 @@ func TestEpicsAlwaysAtRootLevel(t *testing.T) {
 
 	treeNodes := state.GetTreeNodes()
 
-	// Should have 2 root nodes: the epic (always at root) and the blocker (no dependencies)
+	// Should have 2 root nodes: the epic (always at root) and its parent (no dependencies)
 	if len(treeNodes) != 2 {
-		t.Errorf("Expected 2 root nodes (epic + blocker), got %d", len(treeNodes))
+		t.Errorf("Expected 2 root nodes (epic + parent), got %d", len(treeNodes))
 	}
 
 	// Find the epic node
@@ -939,6 +939,46 @@ func TestEpicsAlwaysAtRootLevel(t *testing.T) {
 
 	if epicNode.Children[0].Issue.ID != "test-child" {
 		t.Errorf("Expected epic's child to be test-child, got %s", epicNode.Children[0].Issue.ID)
+	}
+}
+
+// An epic's outbound blocks deps are its children. Closed children stay hidden
+// like every closed issue in tree view, and a child two epics claim nests under
+// the first one built.
+func TestEpicBlocksTargetsAreChildren(t *testing.T) {
+	now := time.Now()
+	epic := func(id string, childIDs ...string) *parser.Issue {
+		issue := &parser.Issue{ID: id, Title: id, Status: parser.StatusOpen, IssueType: parser.TypeEpic, CreatedAt: now, UpdatedAt: now}
+		for _, childID := range childIDs {
+			issue.Dependencies = append(issue.Dependencies, &parser.Dependency{IssueID: id, DependsOnID: childID, Type: parser.DepBlocks, CreatedAt: now})
+		}
+		return issue
+	}
+	task := func(id string, status parser.Status) *parser.Issue {
+		return &parser.Issue{ID: id, Title: id, Status: status, IssueType: parser.TypeTask, CreatedAt: now, UpdatedAt: now}
+	}
+
+	state := New()
+	state.LoadIssues([]*parser.Issue{
+		epic("e-1", "c-open", "c-closed", "c-shared"),
+		epic("e-2", "c-shared"),
+		task("c-open", parser.StatusOpen),
+		task("c-closed", parser.StatusClosed),
+		task("c-shared", parser.StatusOpen),
+	})
+	state.SetViewMode(ViewTree)
+
+	var got []string
+	for _, root := range state.GetTreeNodes() {
+		line := root.Issue.ID + ":"
+		for _, child := range root.Children {
+			line += " " + child.Issue.ID
+		}
+		got = append(got, line)
+	}
+	want := []string{"e-1: c-open c-shared", "e-2:"}
+	if strings.Join(got, " | ") != strings.Join(want, " | ") {
+		t.Errorf("tree = %q, want %q", got, want)
 	}
 }
 
