@@ -214,7 +214,10 @@ behavior.
 
 **Issue categorization:** The `state` package implements the core logic for segregating issues:
 - **Ready:** Open issues with no open blocking dependencies
-- **Blocked:** Open issues with unresolved blocking dependencies OR status="blocked"
+- **Blocked:** Open issues with unresolved blocking dependencies OR status="blocked".
+  The row glyph tells them apart, `○` for the status and `◌` for a dependency,
+  because `so` clears only the status: an issue with an open blocker stays in
+  BLOCKED, and the glyph change is what shows the command took.
 - **In Progress:** Issues with status="in_progress"
 - **Closed:** Issues with status="closed" (hidden by default; `C` toggles them into list view)
 
@@ -528,7 +531,8 @@ The tree view visualizes issue dependencies as a hierarchical structure:
 
 **Rendering the tree** (`renderTreeNode` in `internal/ui/render.go`):
 - Uses ASCII tree characters: `├──`, `└──`, `│`
-- Status indicators: `●` (open), `○` (blocked), `◆` (in-progress)
+- Status indicators: `●` (open), `○` (status blocked), `◌` (open, blocked by a
+  dependency or a blocked parent), `◆` (in-progress); `issueStatus` picks them
 - Color-coded by priority and status
 - Hierarchical indentation based on depth
 - `o`/`O`/`Z` fold and unfold nodes; the collapsed set persists per repo in

@@ -113,8 +113,10 @@ func PopulateIssueList(
 			issueList.AddItem(fmt.Sprintf("[%s::b]⬤ BLOCKED (%d)[-::-]", blockedColor, len(blockedIssues)), "", 0, nil)
 			currentIndex++
 
+			// The group holds two kinds of blocked, which issueStatus tells apart.
 			for _, issue := range blockedIssues {
-				text := formatIssueListItem(issue, "○", showPrefix, me)
+				icon, _ := issueStatus(appState, issue)
+				text := formatIssueListItem(issue, icon, showPrefix, me)
 				issueList.AddItem(text, "", 0, nil)
 				indexToIssue[currentIndex] = issue
 				currentIndex++
@@ -222,14 +224,20 @@ func formatCreatorSuffix(issue *parser.Issue, me string) string {
 // rendering, but the tree and the time-keyed views interleave statuses, so they
 // derive it per row. Effective blocking is what matters: an issue held up by an
 // open dependency shows as blocked even though its own status is "open".
+//
+// The two kinds of blocked get different glyphs, ○ for an explicit blocked
+// status and ◌ for an open issue waiting on a dependency. Clearing the status
+// changes only the first, and the row has to show that it did.
 func issueStatus(appState *state.State, issue *parser.Issue) (icon, color string) {
 	switch {
 	case issue.Status == parser.StatusClosed:
 		return "✓", formatting.GetStatusColor(parser.StatusClosed)
 	case issue.Status == parser.StatusInProgress:
 		return "◆", formatting.GetStatusColor(parser.StatusInProgress)
-	case appState.IsEffectivelyBlocked(issue.ID):
+	case issue.Status == parser.StatusBlocked:
 		return "○", formatting.GetStatusColor(parser.StatusBlocked)
+	case appState.IsEffectivelyBlocked(issue.ID):
+		return "◌", formatting.GetStatusColor(parser.StatusBlocked)
 	default:
 		return "●", formatting.GetStatusColor(parser.StatusOpen)
 	}

@@ -166,7 +166,8 @@ const helpText = `[yellow::b]bd-tui Keyboard Shortcuts[-::-]
 
 [cyan::b]Status Icons[-::-]
   ●           Open/Ready
-  ○           Blocked
+  ○           Blocked (status)
+  ◌           Blocked by a dependency
   ◆           In Progress
   ·           Other
 
@@ -179,7 +180,8 @@ const helpText = `[yellow::b]bd-tui Keyboard Shortcuts[-::-]
 
 [cyan::b]Status Colors[-::-]
   [limegreen]●[-]           Ready
-  [gold]○[-]           Blocked
+  [gold]○[-]           Blocked (status)
+  [gold]◌[-]           Blocked by a dependency
   [deepskyblue]◆[-]           In Progress
   [gray]·[-]           Closed`
 

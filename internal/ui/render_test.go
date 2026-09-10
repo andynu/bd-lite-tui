@@ -10,6 +10,35 @@ import (
 	"github.com/rivo/tview"
 )
 
+// An issue parked by hand and an open issue waiting on a dependency are both
+// blocked, but only the first changes when its status is cleared, so the row
+// has to tell them apart.
+func TestIssueStatusTellsExplicitFromDependencyBlocked(t *testing.T) {
+	blocks := func(from, to string) []*parser.Dependency {
+		return []*parser.Dependency{{IssueID: from, DependsOnID: to, Type: parser.DepBlocks}}
+	}
+	s := state.New()
+	s.LoadIssues([]*parser.Issue{
+		{ID: "blk", Status: parser.StatusOpen},
+		{ID: "parked", Status: parser.StatusBlocked},
+		{ID: "waiting", Status: parser.StatusOpen, Dependencies: blocks("waiting", "blk")},
+		{ID: "both", Status: parser.StatusBlocked, Dependencies: blocks("both", "blk")},
+		{ID: "working", Status: parser.StatusInProgress, Dependencies: blocks("working", "blk")},
+	})
+
+	for _, tc := range []struct{ id, want string }{
+		{"blk", "●"},
+		{"parked", "○"},
+		{"waiting", "◌"},
+		{"both", "○"},
+		{"working", "◆"},
+	} {
+		if got, _ := issueStatus(s, s.GetIssueByID(tc.id)); got != tc.want {
+			t.Errorf("issueStatus(%s) = %q, want %q", tc.id, got, tc.want)
+		}
+	}
+}
+
 // A tview List draws each item on exactly one row, so a "\n" in an item's text
 // reaches the screen as nothing at all: it neither wraps nor opens a blank
 // separator line. Header rows used to carry one anyway (tui-h9l3). Any item
