@@ -417,6 +417,81 @@ func TestDetailFocus_ArrowsBrowseInPagedLayout(t *testing.T) {
 	}
 }
 
+// A click in the paged layout turns the page to the detail, and c there
+// comments on the issue shown rather than being swallowed by the panel.
+func TestDetailFocus_CommentFromPagedDetail(t *testing.T) {
+	h := newHarness(t, basicIssues(), withScreenSize(80, 24))
+	h.setBdResponse(func(args []string) (*BdCommandResult, error) {
+		return &BdCommandResult{Comments: []parser.Comment{{ID: 1, IssueID: args[1], Text: args[2]}}}, nil
+	})
+	h.clickRowContaining("Bravo issue")
+
+	h.typeRunes("c")
+	if got := h.frontPage(); got != "comment_dialog" {
+		t.Fatalf("c from the paged detail opened %q, want comment_dialog", got)
+	}
+	h.typeRunes("hi")
+	h.key(tcell.KeyCtrlS)
+	if got, want := fmt.Sprint(h.calls()), "[bd comment tui-bbb hi]"; got != want {
+		t.Fatalf("bd calls = %s, want %s", got, want)
+	}
+}
+
+// The quick-update keys act on the issue the detail panel shows.
+func TestDetailFocus_QuickUpdatesActOnShownIssue(t *testing.T) {
+	h := newHarness(t, basicIssues())
+	h.selectIssue("tui-aaa")
+	h.key(tcell.KeyTab)
+	h.typeRunes("j") // browse to tui-bbb from the detail
+
+	h.typeRunes("1")
+	if got, want := fmt.Sprint(h.calls()), "[bd update tui-bbb --priority 1]"; got != want {
+		t.Fatalf("bd calls = %s, want %s", got, want)
+	}
+	if status := h.statusText(); !strings.Contains(status, "Set tui-bbb to P1") {
+		t.Fatalf("no confirmation after 1: %q", status)
+	}
+}
+
+// The second key of the s chord belongs to the chord even when the detail
+// panel would otherwise claim it: s then j cancels, as it does in the list,
+// instead of browsing with the chord still armed.
+func TestDetailFocus_StatusChordTakesTheNextKey(t *testing.T) {
+	h := newHarness(t, basicIssues())
+	h.selectIssue("tui-aaa")
+	h.key(tcell.KeyTab)
+
+	h.typeRunes("sj")
+	if got := h.currentIssueID(); got != "tui-aaa" {
+		t.Fatalf("s then j browsed to %q; the chord should have taken the j", got)
+	}
+	h.typeRunes("o")
+	if calls := h.calls(); len(calls) != 0 {
+		t.Fatalf("o after a cancelled chord ran bd: %v", calls)
+	}
+
+	h.typeRunes("si")
+	if got, want := fmt.Sprint(h.calls()), "[bd update tui-aaa --status in_progress]"; got != want {
+		t.Fatalf("bd calls = %s, want %s", got, want)
+	}
+}
+
+// g and G are the panel's own top and bottom. In the list G jumps to the last
+// issue, which here would swap the detail out from under the reader.
+func TestDetailFocus_GStaysWithThePanel(t *testing.T) {
+	h := newHarness(t, basicIssues())
+	h.selectIssue("tui-aaa")
+	h.key(tcell.KeyTab)
+
+	h.typeRunes("G")
+	if got := h.currentIssueID(); got != "tui-aaa" {
+		t.Fatalf("G in the detail panel moved the list selection to %q", got)
+	}
+	if status := h.statusText(); !strings.Contains(status, "Focus: Details") {
+		t.Fatalf("G moved focus out of the detail panel: %q", status)
+	}
+}
+
 // In the paged layout a click on a row has to turn the page as well as move the
 // selection: the detail panel is not mounted, so a click that only highlighted
 // the row left the user staring at an unchanged screen (tui-n0hc).

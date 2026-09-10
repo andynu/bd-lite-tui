@@ -145,6 +145,8 @@ const helpText = `[yellow::b]bd-tui Keyboard Shortcuts[-::-]
   PageUp      Scroll up full page
   Home        Jump to top of details
   End         Jump to bottom of details
+  g / G       Jump to top / bottom of details
+  Other keys  As in the list, on the issue shown
 
 [cyan::b]General[-::-]
   ?           Show this help screen

@@ -9,7 +9,8 @@ import (
 	"github.com/gdamore/tcell/v2"
 )
 
-// Every dialog key opens its page and ESC puts the app back on "main".
+// Every dialog key opens its page and ESC puts the app back on "main", from
+// either panel: the detail panel keeps only the keys it uses itself.
 func TestDialogs_OpenAndCloseOnEscape(t *testing.T) {
 	for _, tc := range []struct {
 		key  string
@@ -27,23 +28,40 @@ func TestDialogs_OpenAndCloseOnEscape(t *testing.T) {
 		{"L", "label_dialog"},
 		{"A", "assign_dialog"},
 	} {
-		t.Run(tc.page, func(t *testing.T) {
-			h := newHarness(t, basicIssues())
-			h.typeRunes("j") // the issue-scoped dialogs need a selected issue
+		for _, panel := range []string{"list", "detail"} {
+			t.Run(tc.page+"/"+panel, func(t *testing.T) {
+				h := newHarness(t, basicIssues())
+				h.typeRunes("j") // the issue-scoped dialogs need a selected issue
+				if panel == "detail" {
+					h.key(tcell.KeyTab)
+				}
 
-			h.typeRunes(tc.key)
-			if got := h.frontPage(); got != tc.page {
-				t.Fatalf("%q opened page %q, want %q", tc.key, got, tc.page)
-			}
+				h.typeRunes(tc.key)
+				if got := h.frontPage(); got != tc.page {
+					t.Fatalf("%q from the %s opened page %q, want %q", tc.key, panel, got, tc.page)
+				}
 
-			h.key(tcell.KeyEscape)
-			if got := h.frontPage(); got != "main" {
-				t.Fatalf("ESC left page %q up, want main", got)
-			}
-			if calls := h.calls(); len(calls) != 0 {
-				t.Errorf("dismissing the dialog ran bd: %v", calls)
-			}
-		})
+				h.key(tcell.KeyEscape)
+				if got := h.frontPage(); got != "main" {
+					t.Fatalf("ESC left page %q up, want main", got)
+				}
+				if calls := h.calls(); len(calls) != 0 {
+					t.Errorf("dismissing the dialog ran bd: %v", calls)
+				}
+
+				if panel == "detail" {
+					if status := h.statusText(); !strings.Contains(status, "Focus: Details") {
+						t.Fatalf("closing the dialog moved focus out of the detail panel: %q", status)
+					}
+					// Dialogs hand tview focus to the list on the way out; the
+					// detail bindings must not depend on where it went.
+					h.typeRunes("j")
+					if got := h.currentIssueID(); got != "tui-bbb" {
+						t.Fatalf("j after the dialog closed: selected %q, want tui-bbb", got)
+					}
+				}
+			})
+		}
 	}
 }
 

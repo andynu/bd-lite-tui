@@ -680,6 +680,13 @@ then detail-panel-focused mode, then normal mode.
 - `PageUp`: Scroll up full page
 - `Home`: Jump to top of details
 - `End`: Jump to bottom of details
+- `g` / `G`: Jump to top / bottom of details. These, `h`/`l` and Space stay
+  with the panel (the TextView scrolls on the letters and ignores Space) rather
+  than taking the list's selection-moving bindings. They are sent to the panel
+  directly because a closing dialog leaves tview focus on the list.
+- Every other rune falls through to its list binding and acts on the issue
+  shown, so `c`, `e`, `x`, the `s` chord, `0`-`4` and `q` work from here. The
+  second key of an `s` chord always goes to the chord, even `j`/`k`.
 
 **Search Mode (after `/`):** printable runes extend the query, Backspace trims a
 full rune, Enter runs the search, ESC abandons it.

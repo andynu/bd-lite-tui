@@ -240,6 +240,8 @@ two epics claim appears under only one of them.
 - `PageUp` - Scroll up full page
 - `Home` - Jump to top of details
 - `End` - Jump to bottom of details
+- `g` / `G` - Jump to top / bottom of details
+- Any other key - Same as in the issue list, acting on the issue shown (`c`, `e`, `x`, the `s` chord, `0`-`4`, `y`, `q`, ...)
 
 ### General
 - `?` - Show help screen

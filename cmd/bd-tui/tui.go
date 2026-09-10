@@ -1142,13 +1142,24 @@ func newTUI(opts tuiOptions) (*tui, error) {
 				selectAdjacentIssue(-1)
 				return nil
 			case tcell.KeyRune:
-				// j/k mirror the arrows here, the way they do in the list.
+				// The second key of an s chord belongs to the chord.
+				if lastKeyWasS {
+					break
+				}
 				switch event.Rune() {
 				case 'j':
+					// j/k mirror the arrows here, the way they do in the list.
 					selectAdjacentIssue(1)
 					return nil
 				case 'k':
 					selectAdjacentIssue(-1)
+					return nil
+				case 'g', 'G', 'h', 'l', ' ':
+					// Kept by the panel, which scrolls on g/G/h/l and ignores space.
+					// In the list g, G and space move the selection, which would
+					// swap the issue out from under the reader. Sent directly
+					// because a closing dialog leaves tview focus on the list.
+					detailPanel.InputHandler()(event, nil)
 					return nil
 				}
 			case tcell.KeyCtrlD:
@@ -1198,8 +1209,11 @@ func newTUI(opts tuiOptions) (*tui, error) {
 				detailPanel.ScrollToEnd()
 				return nil
 			}
-			// Allow other keys to pass through
-			return event
+			// Every other rune takes its list binding below, acting on the issue
+			// shown here.
+			if event.Key() != tcell.KeyRune {
+				return event
+			}
 		}
 
 		// Normal mode key bindings (issue list focused)
