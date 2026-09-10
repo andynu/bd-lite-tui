@@ -670,7 +670,7 @@ func newTUI(opts tuiOptions) (*tui, error) {
 	// Function to show issue details
 	showIssueDetails := func(issue *parser.Issue) {
 		currentDetailIssue = issue
-		details := formatting.FormatIssueDetails(issue)
+		details := formatting.FormatIssueDetails(issue, appState.GetIssueByID)
 		detailPanel.SetText(details)
 		detailPanel.ScrollToBeginning()
 	}

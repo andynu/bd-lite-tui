@@ -26,7 +26,7 @@ func TestFormatIssueDetailsEscapesUserContent(t *testing.T) {
 		UpdatedAt:   now,
 	}
 
-	out := FormatIssueDetails(issue)
+	out := FormatIssueDetails(issue, nil)
 
 	for _, raw := range []string{"Fix [red] login bug", "See [yellow]docs", "[urgent]"} {
 		escaped := tview.Escape(raw)
@@ -57,7 +57,7 @@ func TestFormatIssueDetails_CreatedByPresent(t *testing.T) {
 	issue := createdByTestIssue()
 	issue.CreatedBy = "Andy Nutter-Upham"
 
-	out := FormatIssueDetails(issue)
+	out := FormatIssueDetails(issue, nil)
 
 	want := "  Created: 2026-07-09 12:07 by Andy Nutter-Upham\n"
 	if !strings.Contains(out, want) {
@@ -68,7 +68,7 @@ func TestFormatIssueDetails_CreatedByPresent(t *testing.T) {
 func TestFormatIssueDetails_CreatedByAbsent(t *testing.T) {
 	issue := createdByTestIssue()
 
-	out := FormatIssueDetails(issue)
+	out := FormatIssueDetails(issue, nil)
 
 	// An issue with no created_by must render exactly as it did before the
 	// field existed: the timestamp alone, with no trailing " by".
@@ -85,7 +85,7 @@ func TestFormatIssueDetails_CreatedByDoesNotDisplaceUpdated(t *testing.T) {
 	issue := createdByTestIssue()
 	issue.CreatedBy = "Andy Nutter-Upham"
 
-	out := FormatIssueDetails(issue)
+	out := FormatIssueDetails(issue, nil)
 
 	createdIdx := strings.Index(out, "  Created:")
 	updatedIdx := strings.Index(out, "  Updated:")
@@ -97,5 +97,60 @@ func TestFormatIssueDetails_CreatedByDoesNotDisplaceUpdated(t *testing.T) {
 	}
 	if !strings.Contains(out, "  Updated: 2026-07-09 12:10\n") {
 		t.Errorf("expected unmodified Updated line, got:\n%s", out)
+	}
+}
+
+// stripTags renders tview markup the way the detail panel would, leaving the
+// text a user reads.
+func stripTags(s string) string {
+	return tview.NewTextView().SetDynamicColors(true).SetText(s).GetText(true)
+}
+
+func dependencyTestIssue() *parser.Issue {
+	issue := createdByTestIssue()
+	for _, target := range []string{"tui-open", "tui-done", "tui-gone"} {
+		issue.Dependencies = append(issue.Dependencies, &parser.Dependency{
+			IssueID: issue.ID, DependsOnID: target, Type: parser.DepBlocks,
+		})
+	}
+	return issue
+}
+
+// A dependency line names its target's status and title, so the panel alone
+// says whether the dependency still blocks. A target the lookup cannot resolve
+// is marked rather than shown as if it were fine.
+func TestFormatIssueDetails_DependencyLinesNameTargetStatusAndTitle(t *testing.T) {
+	targets := map[string]*parser.Issue{
+		"tui-open": {ID: "tui-open", Title: "Still [open] work", Status: parser.StatusOpen},
+		"tui-done": {ID: "tui-done", Title: "Finished work", Status: parser.StatusClosed},
+	}
+	lookup := func(id string) *parser.Issue { return targets[id] }
+
+	out := stripTags(FormatIssueDetails(dependencyTestIssue(), lookup))
+
+	for _, want := range []string{
+		"  • blocked by tui-open (open) Still [open] work\n",
+		"  • blocked by tui-done (closed) Finished work\n",
+		"  • blocked by tui-gone (unknown)\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected details to contain %q, got:\n%s", want, out)
+		}
+	}
+}
+
+// With no lookup there is nothing to resolve against, so the lines keep their
+// bare form instead of calling every target unknown.
+func TestFormatIssueDetails_DependencyLinesWithoutLookup(t *testing.T) {
+	out := stripTags(FormatIssueDetails(dependencyTestIssue(), nil))
+
+	for _, want := range []string{
+		"  • blocked by tui-open\n",
+		"  • blocked by tui-done\n",
+		"  • blocked by tui-gone\n",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected details to contain %q, got:\n%s", want, out)
+		}
 	}
 }

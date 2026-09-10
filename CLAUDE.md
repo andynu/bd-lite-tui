@@ -491,7 +491,10 @@ returns no error when it does nothing.
 1. User navigates with j/k
 2. `SetChangedFunc` handler fires on list selection change
 3. Check if selected item is issue (not header)
-4. Format full details (description, dependencies, comments, labels, close_reason, metadata)
+4. Format full details (description, dependencies, comments, labels, close_reason, metadata).
+   `FormatIssueDetails` takes `appState.GetIssueByID` as a lookup, so each
+   dependency line carries its target's status and title (`(unknown)` when the
+   target is not loaded). That title can wrap the line in a narrow panel.
 5. Update detail panel with scrollable text
 
 ### Dependency Detection Algorithm

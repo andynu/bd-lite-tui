@@ -27,8 +27,31 @@ func formatDependencyPhrase(depType parser.DependencyType) string {
 	}
 }
 
-// FormatIssueDetails formats full issue metadata for display in the detail panel
-func FormatIssueDetails(issue *parser.Issue) string {
+// formatDependencyLine renders one dependency as one logical line: the phrase,
+// the target ID and, when lookup resolves the target, its status and title.
+// The title can make the line wrap in a narrow panel, so mapping a click to a
+// dependency has to word-wrap every line above it, not count one row each.
+func formatDependencyLine(dep *parser.Dependency, lookup func(id string) *parser.Issue) string {
+	line := fmt.Sprintf("  • [%s]%s[-] %s",
+		GetDependencyColor(dep.Type), formatDependencyPhrase(dep.Type), tview.Escape(dep.DependsOnID))
+	if lookup == nil {
+		return line + "\n"
+	}
+	target := lookup(dep.DependsOnID)
+	if target == nil {
+		return line + fmt.Sprintf(" [%s](unknown)[-]\n", GetMutedColor())
+	}
+	title := tview.Escape(target.Title)
+	if target.Status == parser.StatusClosed {
+		title = fmt.Sprintf("[%s]%s[-]", GetMutedColor(), title)
+	}
+	return line + fmt.Sprintf(" [%s](%s)[-] %s\n", GetStatusColor(target.Status), target.Status, title)
+}
+
+// FormatIssueDetails formats full issue metadata for display in the detail
+// panel. lookup resolves dependency targets so each line can say whether the
+// target still blocks; nil leaves the lines as bare IDs.
+func FormatIssueDetails(issue *parser.Issue, lookup func(id string) *parser.Issue) string {
 	var result string
 
 	// Header
@@ -57,13 +80,7 @@ func FormatIssueDetails(issue *parser.Issue) string {
 	if len(issue.Dependencies) > 0 {
 		result += fmt.Sprintf("[%s::b]Dependencies:[-::-]\n", emphasisColor)
 		for _, dep := range issue.Dependencies {
-			// Format dependency type as human-readable phrase
-			// From the perspective of this issue:
-			// - "blocks" means this issue is blocked BY the target
-			// - "parent-child" means this issue is a child OF the target
-			depPhrase := formatDependencyPhrase(dep.Type)
-			result += fmt.Sprintf("  • [%s]%s[-] %s\n",
-				GetDependencyColor(dep.Type), depPhrase, dep.DependsOnID)
+			result += formatDependencyLine(dep, lookup)
 		}
 		result += "\n"
 	}
