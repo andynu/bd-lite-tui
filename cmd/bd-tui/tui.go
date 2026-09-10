@@ -216,6 +216,9 @@ func newTUI(opts tuiOptions) (*tui, error) {
 	// Track currently displayed issue in detail panel (for clipboard copy)
 	var currentDetailIssue *parser.Issue
 
+	// currentDetailLinks says which lines of the detail text a click acts on.
+	var currentDetailLinks formatting.DetailLinks
+
 	// Helper functions for themed messages
 	successMsg := func(msg string) string {
 		return fmt.Sprintf("[%s]%s[-]", formatting.GetSuccessColor(), msg)
@@ -598,39 +601,6 @@ func newTUI(opts tuiOptions) (*tui, error) {
 	detailPanel.SetText(fmt.Sprintf("[%s]Navigate to an issue to view details[-]", formatting.GetEmphasisColor()))
 	t.detailPanel = detailPanel
 
-	// Add mouse click handler for copying issue ID
-	detailPanel.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
-		if action == tview.MouseLeftClick && currentDetailIssue != nil {
-			// Get click position
-			_, y := event.Position()
-			// Get the detail panel's position and width
-			_, panelY, innerWidth, _ := detailPanel.GetInnerRect()
-
-			// Translate the click to a content line, accounting for scroll.
-			rowOffset, _ := detailPanel.GetScrollOffset()
-			clickedLine := (y - panelY) + rowOffset
-
-			// The ID lives on the line after the (possibly wrapped) title. Use
-			// tview's own word-wrap to find where the title ends rather than
-			// assuming the title fits on a single line.
-			idLine := 1
-			if innerWidth > 0 {
-				typeIcon := formatting.GetTypeIcon(currentDetailIssue.IssueType)
-				titleText := fmt.Sprintf("%s %s", typeIcon, currentDetailIssue.Title)
-				if n := len(tview.WordWrap(titleText, innerWidth)); n > 0 {
-					idLine = n
-				}
-			}
-
-			if clickedLine == idLine && currentDetailIssue != nil {
-				// Copy issue ID to clipboard
-				copyToClipboard(currentDetailIssue.ID,
-					fmt.Sprintf("%s to clipboard", currentDetailIssue.ID))
-			}
-		}
-		return action, event
-	})
-
 	// Rebuilds the main page from the current layout. Assigned once `pages`
 	// exists; declared here because updatePanelFocus below has to call it.
 	var remountLayout func()
@@ -679,7 +649,8 @@ func newTUI(opts tuiOptions) (*tui, error) {
 	// Function to show issue details
 	showIssueDetails := func(issue *parser.Issue) {
 		currentDetailIssue = issue
-		details := formatting.FormatIssueDetails(issue, appState.GetIssueByID)
+		details, links := formatting.FormatIssueDetailsWithLinks(issue, appState.GetIssueByID)
+		currentDetailLinks = links
 		detailPanel.SetText(details)
 		detailPanel.ScrollToBeginning()
 	}
@@ -935,6 +906,59 @@ func newTUI(opts tuiOptions) (*tui, error) {
 		statusBar.SetText(fmt.Sprintf("[%s]Search:[-] %s [%d/%d matches] [Press n/N for next/prev, ESC to exit search]",
 			formatting.GetEmphasisColor(), searchQuery, currentSearchIndex+1, len(searchMatches)))
 	}
+
+	// followDependency moves the list selection to issue id, revealing it first
+	// when it is closed, filtered out or folded away. Focus and layout are left
+	// alone, so in Paged mode the detail page stays up and repaints.
+	followDependency := func(id string) {
+		target := appState.GetIssueByID(id)
+		if target == nil {
+			showTemporaryStatus(errorMsg(fmt.Sprintf("%s not found", tview.Escape(id))), statusMessageDuration)
+			return
+		}
+		row, revealed := revealIssue(target)
+		if row < 0 {
+			showTemporaryStatus(errorMsg(fmt.Sprintf("%s exists but could not be displayed", tview.Escape(id))), statusMessageDuration)
+			return
+		}
+		issueList.SetCurrentItem(row)
+		// SetCurrentItem repaints only when the row changes, and the rebuilt list
+		// can put the target on the row the cursor already holds.
+		if currentDetailIssue != target {
+			showIssueDetails(target)
+		}
+		note := ""
+		if revealed {
+			// "[revealed[]" renders a literal "[revealed]".
+			note = " [revealed[]"
+		}
+		showTemporaryStatus(successMsg(fmt.Sprintf("→ %s", tview.Escape(id)))+note, statusMessageDuration)
+	}
+
+	// A click on the ID line copies the ID; a click on a dependency line follows
+	// it. The clicked row is mapped back to a line of the rendered text through
+	// the panel's word wrap, because any line above it can span several rows.
+	detailPanel.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+		if action != tview.MouseLeftClick || currentDetailIssue == nil {
+			return action, event
+		}
+		x, y := event.Position()
+		panelX, panelY, width, height := detailPanel.GetInnerRect()
+		if x < panelX || x >= panelX+width || y < panelY || y >= panelY+height {
+			return action, event
+		}
+		scroll, _ := detailPanel.GetScrollOffset()
+		line, ok := detailLineAt(detailPanel.GetText(false), width, y-panelY+scroll)
+		if !ok {
+			return action, event
+		}
+		if line == currentDetailLinks.IDLine {
+			copyToClipboard(currentDetailIssue.ID, fmt.Sprintf("%s to clipboard", currentDetailIssue.ID))
+		} else if id, ok := currentDetailLinks.Dependencies[line]; ok {
+			followDependency(id)
+		}
+		return action, event
+	})
 
 	// Create dialog helpers for all dialog functions
 	dialogHelpers := &DialogHelpers{

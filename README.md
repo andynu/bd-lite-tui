@@ -181,6 +181,12 @@ With mouse mode on, clicking an issue row selects it. On a terminal narrow
 enough for the paged layout it also opens that issue's detail, the same as
 pressing Enter, since the detail panel is not on screen otherwise.
 
+In the detail panel, clicking the ID line copies the ID, and clicking a
+dependency line (`• blocked by tui-abc (open) ...`) selects that issue and shows
+its detail. A closed or filtered-out target is revealed first, the way `/`
+search reveals one. In the paged layout the detail page stays up and repaints
+for the target.
+
 #### View modes
 
 `t` cycles through four modes, and `--view` starts in one of them. All four draw

@@ -160,6 +160,10 @@ or shells out to `bd`.
   this".
 - `h.calls()` returns the recorded `bd` invocations; `h.setBdResponse` installs
   a failing one to cover error paths.
+- `h.clickText(s)` clicks where `s` is drawn, which is how a test reaches the
+  detail panel (`h.clickRowContaining` clicks the left edge, i.e. the list).
+  The package var `newClipboard` is swapped for a recorder, so `h.copied()`
+  lists what the app copied and nothing reaches the real clipboard.
 
 - `withNow(t)` pins the clock the time-keyed views bucket against. Any test
   asserting on a `TODAY`/`THIS WEEK` header needs it, or it passes today and
@@ -235,6 +239,17 @@ and a click that only moved the highlight showed the user nothing. In
 Columns/Rows it just moves the selection. Header rows are ignored. tview calls
 the handler before assigning its own `currentItem`, so the handler calls
 `SetCurrentItem` itself to get the detail repainted in the right order.
+
+A left click in the detail panel goes through `detailPanel.SetMouseCapture`.
+`formatting.FormatIssueDetailsWithLinks` records which logical lines hold the
+ID and each dependency, and `detailLineAt` (`cmd/bd-tui/detail_links.go`) maps
+the clicked row back to a logical line by word-wrapping every line above it with
+`tview.WordWrap`, the breaker the TextView itself uses. Do not count one row per
+line: a long title, description or dependency title wraps. The ID line copies;
+a dependency line calls `followDependency`, which reuses search's `revealIssue`
+to bring a closed, filtered or folded target into the list before selecting it.
+Focus and layout are left alone, so in Paged mode the detail page stays up and
+repaints for the target.
 
 **View modes:** `state.ViewMode` is an N-way cycle, not a toggle:
 - **List View (default):** Issues grouped by status (ready/blocked/in-progress)

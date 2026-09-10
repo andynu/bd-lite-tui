@@ -101,6 +101,8 @@ const helpText = `[yellow::b]bd-tui Keyboard Shortcuts[-::-]
   m           Toggle mouse mode on/off
   Click       Select an issue row; in the paged layout this also
               opens its detail, the same as Enter
+  Click       In the detail: the ID line copies the ID, a
+              dependency line jumps to the issue it names
   r           Manual refresh
 
   The four views draw the same rows and differ only in grouping.
