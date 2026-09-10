@@ -225,6 +225,12 @@ behavior.
 - **In Progress:** Issues with status="in_progress"
 - **Closed:** Issues with status="closed" (hidden by default; `C` toggles them into list view)
 
+Four legends list the row glyphs: the help screen's Status Icons and Status
+Colors sections, and README's Visual Design line and Status Indicators section.
+`cmd/bd-tui/status_legend_test.go` compares each with the glyphs list and
+created view rows actually draw, so a new or changed glyph fails it until all
+four agree.
+
 **Filesystem watching:** Uses fsnotify with 200ms debouncing to watch `.beads/issues.jsonl` for changes and refresh the UI automatically.
 
 **Vim-style navigation:** j/k for up/down, q to quit. Details auto-show on navigation (tui-p62).
