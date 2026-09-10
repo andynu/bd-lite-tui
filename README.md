@@ -143,6 +143,12 @@ expires 2 seconds after `s`, and any second key other than o/i/b/c cancels it.
 `si` also claims the issue for you when it has no assignee. An issue someone
 else holds keeps its assignee.
 
+When the change moves the row under another group header (`so` on a parked
+issue takes it from BLOCKED to READY), the cursor stays in the group it left,
+on the next row, or the one before it if the row was last. Working down a group
+one change at a time needs no `j` in between. A row that stays in its group, or
+leaves it empty, keeps the cursor. Priority changes always keep it.
+
 ### Names on a row
 
 A dimmed `@name` is who holds an issue. A dimmed `+name` is who filed it, and

@@ -186,6 +186,10 @@ func newTUI(opts tuiOptions) (*tui, error) {
 	// Two-character shortcut state
 	var lastKeyWasS bool // For status shortcuts (So, Si, Sb, Sc)
 
+	// The last status chord's cursor step, held until a refresh loads the
+	// change. Only the event loop touches it: the chord and doRefresh's UI pass.
+	var pendingStep *groupStep
+
 	// ESC to quit state (double-press within 1 second)
 	var lastEscapeTime time.Time
 
@@ -457,19 +461,25 @@ func newTUI(opts tuiOptions) (*tui, error) {
 			statusBar.SetText(getStatusBarText())
 			populateIssueList()
 
+			// A pending step belongs to the row the chord was pressed on; once
+			// the cursor is somewhere else it no longer applies.
+			stepTo := ""
+			if pendingStep != nil {
+				if pendingStep.issueID != target {
+					pendingStep = nil
+				} else if pendingStep.landed(appState.GetIssueByID(target)) {
+					stepTo = pendingStep.stepTo
+					pendingStep = nil
+				}
+			}
+
 			// Restore selection.
 			if target != "" {
-				found := false
-				for idx, issue := range indexToIssue {
-					if issue.ID == target {
-						issueList.SetCurrentItem(idx)
-						found = true
-						break
-					}
-				}
-				// If the issue is no longer in the list (e.g., it was closed),
-				// keep the cursor at the same position or the last item.
-				if !found {
+				if idx, ok := selectionIndex(indexToIssue, target, stepTo); ok {
+					issueList.SetCurrentItem(idx)
+				} else {
+					// If the issue is no longer in the list (e.g., it was closed),
+					// keep the cursor at the same position or the last item.
 					if itemCount := issueList.GetItemCount(); itemCount > 0 {
 						if previousIndex >= itemCount {
 							previousIndex = itemCount - 1
@@ -1277,6 +1287,7 @@ func newTUI(opts tuiOptions) (*tui, error) {
 				// Execute status update
 				if issue, ok := indexToIssue[issueList.GetCurrentItem()]; ok {
 					issueID := issue.ID
+					stepTo := groupNeighbor(indexToIssue, issueList.GetCurrentItem())
 					args := []string{"update", issueID, "--status", newStatus}
 
 					// Auto-claim: moving an unclaimed issue to in_progress also
@@ -1304,7 +1315,11 @@ func newTUI(opts tuiOptions) (*tui, error) {
 							msg += stillBlockedNote(appState, issueID)
 						}
 						statusBar.SetText(successMsg(msg))
-						scheduleRefresh(issueID)
+						// No explicit target: the watcher's refresh usually lands
+						// first and may already have stepped, and a target would
+						// drag the cursor back onto the moved row.
+						pendingStep = &groupStep{issueID: issueID, status: updatedIssue.Status, stepTo: stepTo}
+						scheduleRefresh("")
 					}
 				}
 				lastKeyWasS = false

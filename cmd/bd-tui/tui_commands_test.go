@@ -84,7 +84,7 @@ func TestPriorityKey_ErrorSurfacesInTheStatusBar(t *testing.T) {
 }
 
 // s followed by i sets in_progress, and the reload re-files the issue under the
-// IN PROGRESS group.
+// IN PROGRESS group while the cursor stays behind in READY.
 func TestStatusChord_SetsInProgressAndRegroups(t *testing.T) {
 	h := newHarness(t, basicIssues())
 	h.typeRunes("j") // tui-aaa
@@ -116,8 +116,8 @@ func TestStatusChord_SetsInProgressAndRegroups(t *testing.T) {
 		}
 		return false
 	})
-	if got := h.currentIssueID(); got != "tui-aaa" {
-		t.Errorf("the regrouping reload lost the selection, now on %q", got)
+	if got := h.currentIssueID(); got != "tui-bbb" {
+		t.Errorf("cursor is on %q, want tui-bbb, the row after tui-aaa in READY", got)
 	}
 }
 

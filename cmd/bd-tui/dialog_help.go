@@ -76,6 +76,9 @@ const helpText = `[yellow::b]bd-tui Keyboard Shortcuts[-::-]
   si also claims the issue for you when it has no assignee. An
   issue someone else holds is never reassigned.
 
+  A change that moves the row to another group leaves the
+  cursor behind, on the next row of the group it left.
+
 [cyan::b]Names on a row[-::-]
   A dimmed @name is who holds the issue. A dimmed +name is who
   filed it, and only appears when that was someone other than

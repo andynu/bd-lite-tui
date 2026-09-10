@@ -323,6 +323,14 @@ makes every filer a stranger, so every name shows.
 - **Auto-claim on `si`:** moving an issue to in_progress also passes
   `--assignee <identity>` in the same `bd update` call, but only when the issue
   has no assignee. An issue someone else holds is never reassigned.
+- **Cursor after a status chord:** when the reload files the row under a
+  different group header, the cursor stays in the old group on the next row
+  (the previous one if it was last), so a group can be worked down one change at
+  a time. A row that stays in its group, or empties it, keeps the cursor; so
+  does every priority change. "Group" is whatever the view draws headers for, so
+  in the Updated view the restamp into TODAY counts. The step lives in
+  `pendingStep` rather than in the refresh target because the watcher's refresh
+  lands ~300ms before the scheduled one; `group_step.go` holds the logic.
 - **Immediate feedback:** Confirmation message shown in status bar with green checkmark
 - **Auto-refresh:** Issue list automatically refreshes 500ms after update to show changes
 - **No dialogs:** Updates are instant with single keypress, no confirmation needed
