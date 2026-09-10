@@ -28,6 +28,9 @@ type DialogHelpers struct {
 	AppState        *state.State
 	RefreshIssues   func(...string)
 	ScheduleRefresh func(string)
+	// Confirm reports a command's success on the status bar. The message
+	// outlives the refresh the command schedules, then expires.
+	Confirm func(msg string)
 	// OnFiltersChanged is called after a dialog mutates the filter state, so
 	// the caller can repaint the list and status bar. Dialogs mount and return
 	// immediately, so the caller cannot do this at the call site.

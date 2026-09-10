@@ -337,7 +337,11 @@ makes every filer a stranger, so every name shows.
   in the Updated view the restamp into TODAY counts. The step lives in
   `pendingStep` rather than in the refresh target because the watcher's refresh
   lands ~300ms before the scheduled one; `group_step.go` holds the logic.
-- **Immediate feedback:** Confirmation message shown in status bar with green checkmark
+- **Immediate feedback:** Confirmation message shown in status bar with green
+  checkmark. It goes through `showTemporaryStatus` (dialogs reach it as
+  `DialogHelpers.Confirm`), so it stays up for `statusMessageDuration` across
+  the reloads the command provokes; any other write to the status bar replaces
+  it early
 - **Auto-refresh:** Issue list automatically refreshes 500ms after update to show changes
 - **No dialogs:** Updates are instant with single keypress, no confirmation needed
 

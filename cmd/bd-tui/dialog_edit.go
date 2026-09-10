@@ -74,7 +74,7 @@ func (h *DialogHelpers) ShowEditForm() {
 		}
 
 		log.Printf("BD COMMAND: Issue updated successfully: %s", updatedIssue.Title)
-		h.StatusBar.SetText(fmt.Sprintf("[%s]✓ Updated [%s]%s[-][-]", formatting.GetSuccessColor(), formatting.GetAccentColor(), updatedIssue.ID))
+		h.Confirm(fmt.Sprintf("[%s]✓ Updated [%s]%s[-][-]", formatting.GetSuccessColor(), formatting.GetAccentColor(), updatedIssue.ID))
 		h.Pages.RemovePage("edit_form")
 		h.App.SetFocus(h.IssueList)
 		h.ScheduleRefresh(issueID)

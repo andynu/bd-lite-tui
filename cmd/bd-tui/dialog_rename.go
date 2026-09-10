@@ -41,7 +41,7 @@ func (h *DialogHelpers) ShowRenameDialog() {
 			h.StatusBar.SetText(fmt.Sprintf("[%s]Error renaming issue: %v[-]", formatting.GetErrorColor(), err))
 		} else {
 			log.Printf("BD COMMAND: Issue renamed successfully: %s", updatedIssue.Title)
-			h.StatusBar.SetText(fmt.Sprintf("[%s]✓ Renamed %s[-]", formatting.GetSuccessColor(), updatedIssue.ID))
+			h.Confirm(fmt.Sprintf("[%s]✓ Renamed %s[-]", formatting.GetSuccessColor(), updatedIssue.ID))
 
 			// Close dialog
 			h.Pages.RemovePage("rename_dialog")
@@ -79,7 +79,7 @@ func (h *DialogHelpers) ShowRenameDialog() {
 				h.StatusBar.SetText(fmt.Sprintf("[%s]Error renaming issue: %v[-]", formatting.GetErrorColor(), err))
 			} else {
 				log.Printf("BD COMMAND: Issue renamed successfully: %s", updatedIssue.Title)
-				h.StatusBar.SetText(fmt.Sprintf("[%s]✓ Renamed %s[-]", formatting.GetSuccessColor(), updatedIssue.ID))
+				h.Confirm(fmt.Sprintf("[%s]✓ Renamed %s[-]", formatting.GetSuccessColor(), updatedIssue.ID))
 				h.Pages.RemovePage("rename_dialog")
 				h.App.SetFocus(h.IssueList)
 				issueID := issue.ID

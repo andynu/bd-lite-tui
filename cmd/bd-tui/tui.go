@@ -330,13 +330,36 @@ func newTUI(opts tuiOptions) (*tui, error) {
 		}
 	}
 
-	// showTemporaryStatus displays a message in the status bar that auto-clears
-	// after the given duration, reverting to the default status bar text.
+	// A temporary message outlives any refresh that lands while it is up,
+	// because a command's confirmation goes up just before the reload the
+	// command provokes. heldGen tells a message's expiry apart from a later
+	// message's. Only the event loop touches either.
+	var heldStatus string
+	var heldGen uint64
+
+	// statusHeld reports whether the bar still shows an unexpired temporary
+	// message. Any other write to the bar supersedes it.
+	statusHeld := func() bool {
+		return heldStatus != "" && statusBar.GetText(false) == heldStatus
+	}
+
+	// showTemporaryStatus displays a message in the status bar for the given
+	// duration, then reverts to the default status bar text unless something
+	// else has been written there since.
 	showTemporaryStatus := func(msg string, duration time.Duration) {
+		heldGen++
+		gen := heldGen
+		heldStatus = msg
 		statusBar.SetText(msg)
 		time.AfterFunc(duration, func() {
 			safeQueueUpdateDraw(func() {
-				statusBar.SetText(getStatusBarText())
+				if gen != heldGen {
+					return // a later message owns the bar and its own expiry
+				}
+				if statusHeld() {
+					statusBar.SetText(getStatusBarText())
+				}
+				heldStatus = ""
 			})
 		})
 	}
@@ -458,7 +481,9 @@ func newTUI(opts tuiOptions) (*tui, error) {
 			}
 
 			appState.LoadIssues(issues)
-			statusBar.SetText(getStatusBarText())
+			if !statusHeld() {
+				statusBar.SetText(getStatusBarText())
+			}
 			populateIssueList()
 
 			// A pending step belongs to the row the chord was pressed on; once
@@ -980,6 +1005,9 @@ func newTUI(opts tuiOptions) (*tui, error) {
 		AppState:        appState,
 		RefreshIssues:   refreshIssues,
 		ScheduleRefresh: scheduleRefresh,
+		Confirm: func(msg string) {
+			showTemporaryStatus(msg, statusMessageDuration)
+		},
 		OnFiltersChanged: func() {
 			statusBar.SetText(getStatusBarText())
 			populateIssueList()
@@ -1314,7 +1342,7 @@ func newTUI(opts tuiOptions) (*tui, error) {
 						if newStatus == "open" {
 							msg += stillBlockedNote(appState, issueID)
 						}
-						statusBar.SetText(successMsg(msg))
+						showTemporaryStatus(successMsg(msg), statusMessageDuration)
 						// No explicit target: the watcher's refresh usually lands
 						// first and may already have stepped, and a target would
 						// drag the cursor back onto the moved row.
@@ -1568,7 +1596,7 @@ func newTUI(opts tuiOptions) (*tui, error) {
 						statusBar.SetText(errorMsg(fmt.Sprintf("Error updating priority: %v", err)))
 					} else {
 						log.Printf("BD COMMAND: Priority update successful for %s -> P%d", updatedIssue.ID, updatedIssue.Priority)
-						statusBar.SetText(successMsg(fmt.Sprintf("✓ Set %s to P%d", updatedIssue.ID, updatedIssue.Priority)))
+						showTemporaryStatus(successMsg(fmt.Sprintf("✓ Set %s to P%d", updatedIssue.ID, updatedIssue.Priority)), statusMessageDuration)
 						// Refresh issues after a short delay, preserving selection
 						log.Printf("BD COMMAND: Scheduling refresh in 500ms")
 						scheduleRefresh(issueID)

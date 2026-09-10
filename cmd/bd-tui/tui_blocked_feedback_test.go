@@ -34,6 +34,10 @@ func TestStatusChord_OpenOnDependencyBlockedIssueNamesTheBlocker(t *testing.T) {
 		return issue != nil && issue.Status == parser.StatusOpen
 	})
 
+	if status := h.statusText(); !strings.Contains(status, "Set tui-wait to open, still blocked by tui-blk") {
+		t.Errorf("the reload replaced the blocker note: %q", status)
+	}
+
 	screen := h.screenText()
 	if strings.Contains(screen, "○ 📋 tui-wait") || !strings.Contains(screen, "◌ 📋 tui-wait") {
 		t.Errorf("row glyph did not change from explicit-blocked to dependency-blocked:\n%s", screen)

@@ -79,7 +79,7 @@ func (h *DialogHelpers) ShowDependencyDialog() {
 			h.StatusBar.SetText(fmt.Sprintf("[%s]Error adding dependency: %v[-]", formatting.GetErrorColor(), err))
 		} else {
 			log.Printf("BD COMMAND: Dependency added successfully to %s", updatedIssue.ID)
-			h.StatusBar.SetText(fmt.Sprintf("[%s]✓ Now [%s]blocked by[-] [%s]%s[-][-]", formatting.GetSuccessColor(), formatting.GetEmphasisColor(), formatting.GetAccentColor(), targetID))
+			h.Confirm(fmt.Sprintf("[%s]✓ Now [%s]blocked by[-] [%s]%s[-][-]", formatting.GetSuccessColor(), formatting.GetEmphasisColor(), formatting.GetAccentColor(), targetID))
 			h.Pages.RemovePage("dependency_dialog")
 			h.App.SetFocus(h.IssueList)
 			h.ScheduleRefresh(issueID)
@@ -104,7 +104,7 @@ func (h *DialogHelpers) ShowDependencyDialog() {
 				} else {
 					removePhrase := depTypeToPhrase(depToRemove.Type)
 					log.Printf("BD COMMAND: Dependency removed successfully from %s", updatedIssue.ID)
-					h.StatusBar.SetText(fmt.Sprintf("[%s]✓ No longer [%s]%s[-] [%s]%s[-][-]", formatting.GetSuccessColor(), formatting.GetEmphasisColor(), removePhrase, formatting.GetAccentColor(), depToRemove.DependsOnID))
+					h.Confirm(fmt.Sprintf("[%s]✓ No longer [%s]%s[-] [%s]%s[-][-]", formatting.GetSuccessColor(), formatting.GetEmphasisColor(), removePhrase, formatting.GetAccentColor(), depToRemove.DependsOnID))
 					h.Pages.RemovePage("dependency_dialog")
 					h.App.SetFocus(h.IssueList)
 					h.ScheduleRefresh(issueID)

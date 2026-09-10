@@ -238,7 +238,7 @@ func (h *DialogHelpers) ShowCreateIssueDialog() {
 			h.StatusBar.SetText(fmt.Sprintf("[%s]Error creating issue: %v[-]", formatting.GetErrorColor(), err))
 		} else {
 			log.Printf("BD COMMAND: Issue created successfully: %s", createdIssue.ID)
-			h.StatusBar.SetText(fmt.Sprintf("[%s]✓ Created [%s]%s[-][-]", formatting.GetSuccessColor(), formatting.GetAccentColor(), createdIssue.ID))
+			h.Confirm(fmt.Sprintf("[%s]✓ Created [%s]%s[-][-]", formatting.GetSuccessColor(), formatting.GetAccentColor(), createdIssue.ID))
 
 			// Close dialog
 			h.Pages.RemovePage("create_issue")
@@ -289,7 +289,7 @@ func (h *DialogHelpers) ShowCreateIssueDialog() {
 				h.StatusBar.SetText(fmt.Sprintf("[%s]Error creating issue: %v[-]", formatting.GetErrorColor(), err))
 			} else {
 				log.Printf("BD COMMAND: Issue created successfully: %s", createdIssue.ID)
-				h.StatusBar.SetText(fmt.Sprintf("[%s]✓ Created [%s]%s[-][-]", formatting.GetSuccessColor(), formatting.GetAccentColor(), createdIssue.ID))
+				h.Confirm(fmt.Sprintf("[%s]✓ Created [%s]%s[-][-]", formatting.GetSuccessColor(), formatting.GetAccentColor(), createdIssue.ID))
 				h.Pages.RemovePage("create_issue")
 				h.App.SetFocus(h.IssueList)
 				h.ScheduleRefresh("")

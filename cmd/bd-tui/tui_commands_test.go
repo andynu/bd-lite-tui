@@ -34,6 +34,9 @@ func TestPriorityKey_UpdatesReportsAndReloads(t *testing.T) {
 		issue := h.tui.state.GetIssueByID("tui-aaa")
 		return issue != nil && issue.Priority == 3
 	})
+	if status := h.statusText(); !strings.Contains(status, "Set tui-aaa to P3") {
+		t.Errorf("the reload replaced the confirmation: %q", status)
+	}
 	if got := h.currentIssueID(); got != "tui-aaa" {
 		t.Errorf("the reload moved the selection to %q", got)
 	}

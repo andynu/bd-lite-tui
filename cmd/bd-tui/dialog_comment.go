@@ -37,7 +37,7 @@ func (h *DialogHelpers) ShowCommentDialog() {
 			h.StatusBar.SetText(fmt.Sprintf("[%s]Error adding comment: %v[-]", formatting.GetErrorColor(), err))
 		} else {
 			log.Printf("BD COMMAND: Comment added successfully: ID %d", comment.ID)
-			h.StatusBar.SetText(fmt.Sprintf("[%s]✓ Comment added successfully[-]", formatting.GetSuccessColor()))
+			h.Confirm(fmt.Sprintf("[%s]✓ Comment added successfully[-]", formatting.GetSuccessColor()))
 
 			// Close dialog
 			h.Pages.RemovePage("comment_dialog")

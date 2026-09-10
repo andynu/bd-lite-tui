@@ -51,7 +51,7 @@ func (h *DialogHelpers) ShowCloseIssueDialog() {
 			return
 		}
 		log.Printf("BD COMMAND: Issue closed successfully: %s", closedIssue.ID)
-		h.StatusBar.SetText(fmt.Sprintf("[%s]✓ Closed [%s]%s[-][-]", formatting.GetSuccessColor(), formatting.GetAccentColor(), closedIssue.ID))
+		h.Confirm(fmt.Sprintf("[%s]✓ Closed [%s]%s[-][-]", formatting.GetSuccessColor(), formatting.GetAccentColor(), closedIssue.ID))
 		h.Pages.RemovePage("close_issue_dialog")
 		h.App.SetFocus(h.IssueList)
 		h.ScheduleRefresh(issueID)
@@ -121,7 +121,7 @@ func (h *DialogHelpers) ShowReopenIssueDialog() {
 		h.StatusBar.SetText(fmt.Sprintf("[%s]Error reopening issue: %v[-]", formatting.GetErrorColor(), err))
 	} else {
 		log.Printf("BD COMMAND: Issue reopened successfully: %s", updatedIssue.ID)
-		h.StatusBar.SetText(fmt.Sprintf("[%s]✓ Reopened [%s]%s[-][-]", formatting.GetSuccessColor(), formatting.GetAccentColor(), updatedIssue.ID))
+		h.Confirm(fmt.Sprintf("[%s]✓ Reopened [%s]%s[-][-]", formatting.GetSuccessColor(), formatting.GetAccentColor(), updatedIssue.ID))
 		h.ScheduleRefresh(issueID)
 	}
 }

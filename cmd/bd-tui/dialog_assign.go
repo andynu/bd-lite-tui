@@ -42,11 +42,11 @@ func (h *DialogHelpers) ShowAssignDialog() {
 
 		if assignee == "" {
 			log.Printf("BD COMMAND: Cleared assignee on %s", updatedIssue.ID)
-			h.StatusBar.SetText(fmt.Sprintf("[%s]✓ Cleared assignee on %s[-]",
+			h.Confirm(fmt.Sprintf("[%s]✓ Cleared assignee on %s[-]",
 				formatting.GetSuccessColor(), updatedIssue.ID))
 		} else {
 			log.Printf("BD COMMAND: Assigned %s to %s", updatedIssue.ID, assignee)
-			h.StatusBar.SetText(fmt.Sprintf("[%s]✓ Assigned %s to %s[-]",
+			h.Confirm(fmt.Sprintf("[%s]✓ Assigned %s to %s[-]",
 				formatting.GetSuccessColor(), updatedIssue.ID, assignee))
 		}
 

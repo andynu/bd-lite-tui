@@ -69,7 +69,7 @@ func (h *DialogHelpers) ShowLabelDialog() {
 			h.StatusBar.SetText(fmt.Sprintf("[%s]Error adding label: %v[-]", formatting.GetErrorColor(), err))
 		} else {
 			log.Printf("BD COMMAND: Label added successfully to %s", updatedIssue.ID)
-			h.StatusBar.SetText(fmt.Sprintf("[%s]✓ Added label [%s]'%s'[-][-]", formatting.GetSuccessColor(), formatting.GetEmphasisColor(), trimmedLabel))
+			h.Confirm(fmt.Sprintf("[%s]✓ Added label [%s]'%s'[-][-]", formatting.GetSuccessColor(), formatting.GetEmphasisColor(), trimmedLabel))
 			h.Pages.RemovePage("label_dialog")
 			h.App.SetFocus(h.IssueList)
 			h.ScheduleRefresh(issueID)
@@ -100,7 +100,7 @@ func (h *DialogHelpers) ShowLabelDialog() {
 					h.StatusBar.SetText(fmt.Sprintf("[%s]Error removing label: %v[-]", formatting.GetErrorColor(), err))
 				} else {
 					log.Printf("BD COMMAND: Label removed successfully from %s", updatedIssue.ID)
-					h.StatusBar.SetText(fmt.Sprintf("[%s]✓ Removed label [%s]'%s'[-][-]", formatting.GetSuccessColor(), formatting.GetEmphasisColor(), labelToRemove))
+					h.Confirm(fmt.Sprintf("[%s]✓ Removed label [%s]'%s'[-][-]", formatting.GetSuccessColor(), formatting.GetEmphasisColor(), labelToRemove))
 					h.Pages.RemovePage("label_dialog")
 					h.App.SetFocus(h.IssueList)
 					h.ScheduleRefresh(issueID)

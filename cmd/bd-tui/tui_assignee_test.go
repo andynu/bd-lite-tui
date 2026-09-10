@@ -214,6 +214,9 @@ func TestAssignDialog_SetsTheAssignee(t *testing.T) {
 		issue := h.tui.state.GetIssueByID("tui-none")
 		return issue != nil && issue.Assignee == "scott"
 	})
+	if status := h.statusText(); !strings.Contains(status, "Assigned tui-none to scott") {
+		t.Errorf("the reload replaced the confirmation: %q", status)
+	}
 }
 
 // The dialog is pre-filled with the current assignee, so an existing value can
