@@ -547,13 +547,22 @@ An issue is "blocked" if:
 The tree view visualizes issue dependencies as a hierarchical structure:
 
 **Building the tree** (`State.buildDependencyTree` in `internal/state/state.go`):
-1. Build maps of parent→children (explicit parent-child deps plus dotted-ID
-   children) and blocker→blocked (from blocks dependencies)
+1. Build maps of parent→children (explicit parent-child deps, dotted-ID
+   children, and an epic's outbound blocks deps) and blocker→blocked (blocks
+   deps whose dependent is not an epic)
 2. Find root nodes: epics are always roots; everything else is a root only when
-   it has no incoming parent-child or blocks dependency
+   it has no parent and no blocker in those maps
 3. Recursively build tree from roots (epics first), adding both children and blocked issues
 4. Skip closed issues in tree view
-5. Track visited IDs for cycle detection, capped at `maxTreeDepth` (50)
+5. Track visited IDs for cycle detection, capped at `maxTreeDepth` (50). A child
+   two epics claim nests under whichever epic is built first
+
+A `blocks` edge therefore reads in opposite directions depending on the
+dependent's type. `bd dep add <epic> <child>` is how an epic lists its work, so
+when the dependent is an epic the target nests under it as a child. For any
+other dependent the blocked issue nests under its blocker. Only `issue_type`
+epic gets the reversed reading; list view's blocked/ready categorization is
+unaffected and still treats the epic as blocked by its open children.
 
 **Rendering the tree** (`renderTreeNode` in `internal/ui/render.go`):
 - Uses ASCII tree characters: `├──`, `└──`, `│`

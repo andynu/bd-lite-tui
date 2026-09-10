@@ -112,7 +112,10 @@ const helpText = `[yellow::b]bd-tui Keyboard Shortcuts[-::-]
   The list border names the mode t goes to next.
 
     list      By status: in progress, then ready, then blocked.
-    tree      By dependency, as a foldable hierarchy.
+    tree      By dependency, as a foldable hierarchy. An epic's
+              blocks deps are its children and nest under it.
+              Any other blocks dep nests the blocked issue under
+              its blocker.
     created   By age, newest bucket first: Today, Yesterday,
               This week, Last week, This month, Older, Undated.
               Empty buckets are skipped.

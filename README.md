@@ -219,6 +219,13 @@ lands at the top of `Today` on the next refresh.
 `C` and `f` shape the three flat modes. Tree view ignores both — it never shows
 closed issues and always draws the whole graph.
 
+Tree view reads a `blocks` dep in one of two directions. When the dependent is
+an epic, the target is one of its children and nests under it, which is how
+`bd dep add <epic> <child>` records an epic's work. Any other `blocks` dep nests
+the blocked issue under its blocker. Only `issue_type` epic gets the first
+reading. Closed children are hidden with every other closed issue, and a child
+two epics claim appears under only one of them.
+
 ### Detail Panel (when focused)
 - `Tab` / `ESC` / `←` - Return focus to issue list
 - `j` / `↓` - Show the next issue, skipping group headers (stops at the end)
