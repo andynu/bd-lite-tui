@@ -5,6 +5,63 @@ All notable changes to bd-tui will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-09-10
+
+### Added
+
+#### Views
+- **Created view** and **Updated view** — issues grouped by relative time buckets (Today, Yesterday, This week, Last week, This month, Older) keyed on creation or last-touch time. `t` now cycles list → tree → created → updated → list, and `--view` accepts all four
+- **Paged layout** for narrow terminals (<90 columns) — list and detail each take the full screen, switched with Tab/Enter/ESC/Left; `v` cycles a layout pin (auto → Columns → Rows → Paged → auto)
+
+#### Assignee & attribution
+- **Assign dialog** (`A`) — set or clear an issue's assignee, with autocomplete from names already in use
+- **Auto-claim on `si`** — moving an issue to in_progress claims it for `git user.name` when it has no assignee
+- **Assignee filter** in the quick filter (`@name`, `mine`, `unassigned`)
+- A dimmed `+name` on a row shows who filed it, when that isn't the current identity
+
+#### Dependency navigation
+- **Click a dependency line** in the detail panel to jump the list selection to that issue, revealing it first if it's closed, filtered out, or folded away
+- Dependency lines in the detail panel now show the target's **status and title**, not just its bare ID
+- Tree view nests an epic's outbound `blocks` targets under it as children, instead of losing them as stray roots
+- **Row glyph `◌`** distinguishes an issue blocked by an open dependency from one explicitly set to `blocked` (`○`)
+- The status bar names the remaining blocker (", still blocked by X") when a status change doesn't fully unblock an issue
+
+#### Detail panel & navigation
+- Left arrow leaves the detail panel back to the list
+- Up/Down and j/k browse between issues while the detail panel is focused, skipping group headers
+- Clicking a list row in Paged mode opens its detail (matching Enter)
+
+#### Clipboard
+- **OSC 52 clipboard route** for remote/SSH sessions, selectable via `BD_TUI_CLIPBOARD` (auto/helper/osc52)
+- Clipboard failures now recover the display from tmux and report the underlying helper error instead of a bare exit code
+
+#### Other
+- Status-bar confirmations now stay visible for their full duration across the reload they provoke, instead of being overwritten within a fraction of a second
+- Status legends (help screen and README) corrected to list `✓` for closed issues, with a test pinning the legends to the glyphs rows actually draw
+- CI now fails on gofmt drift (`make fmt-check`)
+- A SimulationScreen-based integration test harness drives the real app end to end (key chords, refresh, search, dialogs), taking `cmd/bd-tui` coverage from 3.3% to 55.3%
+
+### Changed
+- The status chord (`s` then `o`/`i`/`b`/`c`) replaces plain status cycling
+- After a status chord moves a row to another group, the cursor steps to the neighboring row in the old group instead of following the changed issue
+- Clipboard handling moved from `atotto/clipboard` to `internal/clipboard`
+- Status bar path is shortened (home-relative, long paths elided) so the focus and layout fields stay visible on narrow terminals
+- Removed dead/unreachable code: the unused `internal/ui/components.go` two-column layout and `internal/app.AppContext`
+- README, CLAUDE.md and the help screen were brought back in line with the actual keybindings and architecture several times over this window
+
+### Fixed
+- File watcher stalled permanently after `.beads` directory recreation (checkout/stash/rebase, worktree swaps, `bd init`)
+- Issue refresh serialized behind 10s timeouts and leaked a goroutine per tick under load; refresh is now single-flight and non-blocking
+- Bracketed tags (`[P1]`, layout/view indicators) were parsed as tview color tags and swallowed instead of rendering
+- The quick filter dialog didn't repaint the list after applying or clearing
+- Enter on a dialog button (filter, close) fell through to the wrong handler because a form-wide capture swallowed it
+- Search couldn't find issues hidden by a collapsed tree ancestor, an active filter, or the closed toggle; it now reveals them
+- A rune-indexed `ToLower` corrupted any string with multi-byte characters, including the emoji status/type icons
+- 10 bugs from a code-review sweep: unescaped titles/labels breaking display, a lost `--issue` filter on refresh, bd stderr corrupting JSON parsing, a stale `gg` prefix, blocked-state not propagating through dotted-ID parents, and others
+- A `.beads` directory with no `issues.jsonl` yet was a hard startup error instead of an empty board
+- The startup hint for a missing issue store pointed at `bd export`, which doesn't exist in bd-lite
+- An open dialog could end up underneath the issue list after a resize-triggered layout rebuild, taking keyboard input nowhere visible
+
 ## [0.3.0] - 2026-02-10
 
 ### Fixed
@@ -130,6 +187,7 @@ Initial release of bd-tui, a terminal user interface for the [bd-lite](https://g
 - SQLite database access via [go-sqlite3](https://github.com/ncruces/go-sqlite3)
 - Cross-platform: macOS (Intel/Apple Silicon) and Linux (amd64/arm64)
 
+[0.4.0]: https://github.com/andynu/bd-lite-tui/releases/tag/v0.4.0
 [0.3.0]: https://github.com/andynu/bd-lite-tui/releases/tag/v0.3.0
 [0.2.1]: https://github.com/andynu/bd-lite-tui/releases/tag/v0.2.1
 [0.2.0]: https://github.com/andynu/bd-lite-tui/releases/tag/v0.2.0
