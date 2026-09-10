@@ -817,6 +817,42 @@ func newTUI(opts tuiOptions) (*tui, error) {
 		return false
 	})
 
+	// revealIssue rebuilds the list so target has a row and returns that row, or
+	// -1 if it still has none. An issue can be hidden by being closed (only the
+	// flat views show closed issues, and only with C on), by a filter, or by a
+	// folded ancestor in tree view; revealed reports whether any of that changed.
+	revealIssue := func(target *parser.Issue) (row int, revealed bool) {
+		if target.Status == parser.StatusClosed {
+			if appState.GetViewMode() == state.ViewTree {
+				appState.SetViewMode(state.ViewList)
+				issueList.SetTitle(getIssueListTitle())
+				revealed = true
+			}
+			if !showClosedIssues {
+				showClosedIssues = true
+				revealed = true
+			}
+		}
+
+		if appState.HasActiveFilters() && !appState.IssuePassesFilters(target) {
+			appState.ClearAllFilters()
+			revealed = true
+		}
+
+		if appState.GetViewMode() == state.ViewTree && appState.ExpandAncestors(target.ID) {
+			revealed = true
+		}
+
+		populateIssueList()
+
+		for idx, iss := range indexToIssue {
+			if iss.ID == target.ID {
+				return idx, revealed
+			}
+		}
+		return -1, revealed
+	}
+
 	// Helper function to perform search
 	performSearch := func(query string) {
 		searchMatches = nil
@@ -857,43 +893,7 @@ func newTUI(opts tuiOptions) (*tui, error) {
 			return
 		}
 
-		revealed := false
-
-		// Closed issues only render in list view with "show closed" enabled.
-		if target.Status == parser.StatusClosed {
-			if appState.GetViewMode() == state.ViewTree {
-				appState.SetViewMode(state.ViewList)
-				issueList.SetTitle(getIssueListTitle())
-				revealed = true
-			}
-			if !showClosedIssues {
-				showClosedIssues = true
-				revealed = true
-			}
-		}
-
-		// Clear filters if they would hide the target.
-		if appState.HasActiveFilters() && !appState.IssuePassesFilters(target) {
-			appState.ClearAllFilters()
-			revealed = true
-		}
-
-		// Expand collapsed ancestors in tree view.
-		if appState.GetViewMode() == state.ViewTree && appState.ExpandAncestors(target.ID) {
-			revealed = true
-		}
-
-		populateIssueList()
-
-		// Locate the (now visible) row for the target and select it.
-		matchIndex := -1
-		for idx, iss := range indexToIssue {
-			if iss.ID == target.ID {
-				matchIndex = idx
-				break
-			}
-		}
-
+		matchIndex, revealed := revealIssue(target)
 		if matchIndex >= 0 {
 			searchMatches = []int{matchIndex}
 			currentSearchIndex = 0
