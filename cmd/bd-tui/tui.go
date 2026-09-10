@@ -48,6 +48,15 @@ const (
 // to have configured.
 var resolveIdentity = identity.Resolve
 
+// clipboardWriter is what the TUI needs from internal/clipboard.
+type clipboardWriter interface {
+	Copy(text string) (clipboard.Result, error)
+}
+
+// newClipboard builds the clipboard the TUI copies to. It is a variable so
+// tests can record copies instead of writing to the developer's clipboard.
+var newClipboard = func() clipboardWriter { return clipboard.New() }
+
 // tuiOptions is everything newTUI needs that main() resolves from flags, the
 // environment, and the user's config. Keeping it a plain struct is what makes
 // the whole event layer reachable from a test: a test fills it in with a temp
@@ -327,7 +336,7 @@ func newTUI(opts tuiOptions) (*tui, error) {
 
 	// clip copies to the system clipboard. It resolves the display itself, so it
 	// still works in a tmux pane that was started without one.
-	clip := clipboard.New()
+	clip := newClipboard()
 
 	// copyToClipboard copies text and reports the outcome in the status bar.
 	// description is the outcome phrase, e.g. "tui-abc to clipboard".

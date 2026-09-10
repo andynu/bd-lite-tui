@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andynu/bd-lite-tui/internal/clipboard"
 	"github.com/andynu/bd-lite-tui/internal/parser"
 	"github.com/andynu/bd-lite-tui/internal/state"
 	"github.com/gdamore/tcell/v2"
@@ -76,6 +77,10 @@ type harness struct {
 	// now is the clock the app buckets against, so the fake bd can stamp
 	// updated_at the same way the view reads it.
 	now func() time.Time
+
+	// copies records what the app sent to the (faked) clipboard.
+	copyMu sync.Mutex
+	copies []string
 
 	mu      sync.Mutex
 	barrier chan struct{}
@@ -210,6 +215,11 @@ func newHarness(t *testing.T, issues []*parser.Issue, opts ...harnessOption) *ha
 	resolveIdentity = func(string) string { return cfg.identity }
 	t.Cleanup(func() { resolveIdentity = realIdentity })
 
+	// Record clipboard writes rather than reaching the developer's clipboard.
+	realClipboard := newClipboard
+	newClipboard = func() clipboardWriter { return fakeClipboard{h} }
+	t.Cleanup(func() { newClipboard = realClipboard })
+
 	app, err := newTUI(cfg.tui)
 	if err != nil {
 		t.Fatalf("newTUI: %v", err)
@@ -316,6 +326,66 @@ func (h *harness) clickRowContaining(want string) {
 		}
 	}
 	h.t.Fatalf("no rendered row contains %q:\n%s", want, h.screenText())
+}
+
+// clickText left-clicks the screen cell where want first starts. Unlike
+// clickRowContaining it lands on the text itself, which is what reaching the
+// detail panel takes: in the split layouts it does not start at the left edge.
+func (h *harness) clickText(want string) {
+	h.t.Helper()
+	x, y, ok := h.locate(want)
+	if !ok {
+		h.t.Fatalf("nothing on screen reads %q:\n%s", want, h.screenText())
+	}
+	h.clickAt(x, y)
+}
+
+// locate returns the screen cell where want first starts, walking the cells the
+// way screenLines does so a double-width glyph earlier in the row does not
+// shift the column.
+func (h *harness) locate(want string) (x, y int, ok bool) {
+	h.read(func() {
+		cells, width, height := h.screen.GetContents()
+		for row := 0; row < height && !ok; row++ {
+			var line strings.Builder
+			var columns []int // screen column of each byte in line
+			for col := 0; col < width; col++ {
+				text := " "
+				if runes := cells[row*width+col].Runes; len(runes) > 0 {
+					text = string(runes)
+				}
+				for range len(text) {
+					columns = append(columns, col)
+				}
+				line.WriteString(text)
+				if w := tview.TaggedStringWidth(text); w > 1 {
+					col += w - 1
+				}
+			}
+			if i := strings.Index(line.String(), want); i >= 0 {
+				x, y, ok = columns[i], row, true
+			}
+		}
+	})
+	return x, y, ok
+}
+
+// copied returns everything the app has sent to the clipboard, oldest first.
+func (h *harness) copied() []string {
+	h.copyMu.Lock()
+	defer h.copyMu.Unlock()
+	return append([]string(nil), h.copies...)
+}
+
+// fakeClipboard records copies and acknowledges them the way a display helper
+// does, so the status bar takes its confirmed path.
+type fakeClipboard struct{ h *harness }
+
+func (c fakeClipboard) Copy(text string) (clipboard.Result, error) {
+	c.h.copyMu.Lock()
+	c.h.copies = append(c.h.copies, text)
+	c.h.copyMu.Unlock()
+	return clipboard.Result{Helper: "fake", Confirmed: true}, nil
 }
 
 // typeRunes presses each rune of s in turn, the way a user types.
