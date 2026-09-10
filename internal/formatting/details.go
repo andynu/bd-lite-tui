@@ -2,6 +2,7 @@ package formatting
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/andynu/bd-lite-tui/internal/parser"
 	"github.com/rivo/tview"
@@ -48,11 +49,31 @@ func formatDependencyLine(dep *parser.Dependency, lookup func(id string) *parser
 	return line + fmt.Sprintf(" [%s](%s)[-] %s\n", GetStatusColor(target.Status), target.Status, title)
 }
 
+// DetailLinks says which logical lines of a detail rendering (its text split on
+// "\n") a click acts on. They are logical lines, not screen rows: the caller
+// word-wraps each line to map a clicked row back to one of these.
+type DetailLinks struct {
+	// IDLine is the line holding the issue's own ID.
+	IDLine int
+
+	// Dependencies maps each dependency line to the ID of the issue it names.
+	Dependencies map[int]string
+}
+
 // FormatIssueDetails formats full issue metadata for display in the detail
 // panel. lookup resolves dependency targets so each line can say whether the
 // target still blocks; nil leaves the lines as bare IDs.
 func FormatIssueDetails(issue *parser.Issue, lookup func(id string) *parser.Issue) string {
+	text, _ := FormatIssueDetailsWithLinks(issue, lookup)
+	return text
+}
+
+// FormatIssueDetailsWithLinks is FormatIssueDetails plus where the clickable
+// lines landed. Counting newlines as the text is built keeps the answer right
+// when the title or description spans several lines of its own.
+func FormatIssueDetailsWithLinks(issue *parser.Issue, lookup func(id string) *parser.Issue) (string, DetailLinks) {
 	var result string
+	links := DetailLinks{Dependencies: map[int]string{}}
 
 	// Header
 	priorityColor := GetPriorityColor(issue.Priority)
@@ -66,6 +87,7 @@ func FormatIssueDetails(issue *parser.Issue, lookup func(id string) *parser.Issu
 	// User-controlled fields are escaped so brackets are rendered literally
 	// rather than being parsed as tview color/region tags.
 	result += fmt.Sprintf("[::b]%s %s[-::-]\n", typeIcon, tview.Escape(issue.Title))
+	links.IDLine = strings.Count(result, "\n")
 	result += fmt.Sprintf("[%s]ID:[-] %s [%s](click to copy)[-]  ", mutedColor, tview.Escape(issue.ID), accentColor)
 	result += fmt.Sprintf("[%s]P%d[-]  ", priorityColor, issue.Priority)
 	result += fmt.Sprintf("[%s]%s[-]\n\n", statusColor, issue.Status)
@@ -80,6 +102,7 @@ func FormatIssueDetails(issue *parser.Issue, lookup func(id string) *parser.Issu
 	if len(issue.Dependencies) > 0 {
 		result += fmt.Sprintf("[%s::b]Dependencies:[-::-]\n", emphasisColor)
 		for _, dep := range issue.Dependencies {
+			links.Dependencies[strings.Count(result, "\n")] = dep.DependsOnID
 			result += formatDependencyLine(dep, lookup)
 		}
 		result += "\n"
@@ -127,5 +150,5 @@ func FormatIssueDetails(issue *parser.Issue, lookup func(id string) *parser.Issu
 		}
 	}
 
-	return result
+	return result, links
 }

@@ -139,6 +139,40 @@ func TestFormatIssueDetails_DependencyLinesNameTargetStatusAndTitle(t *testing.T
 	}
 }
 
+// The links point at logical lines, so a title and description with newlines of
+// their own move the ID and dependency lines down with them.
+func TestFormatIssueDetailsWithLinks_LocatesIDAndDependencyLines(t *testing.T) {
+	issue := dependencyTestIssue()
+	issue.Title = "Two\nline title"
+	issue.Description = "first\nsecond\nthird"
+
+	text, links := FormatIssueDetailsWithLinks(issue, nil)
+	if plain := FormatIssueDetails(issue, nil); plain != text {
+		t.Fatalf("FormatIssueDetails and FormatIssueDetailsWithLinks render differently")
+	}
+	lines := strings.Split(stripTags(text), "\n")
+
+	if links.IDLine != 2 {
+		t.Errorf("IDLine = %d, want 2 (after a two-line title)", links.IDLine)
+	}
+	if got := lines[links.IDLine]; !strings.HasPrefix(got, "ID: "+issue.ID+" ") {
+		t.Errorf("IDLine %d reads %q, want the ID line", links.IDLine, got)
+	}
+
+	want := map[string]bool{"tui-open": true, "tui-done": true, "tui-gone": true}
+	if len(links.Dependencies) != len(want) {
+		t.Fatalf("got %d dependency lines, want %d: %v", len(links.Dependencies), len(want), links.Dependencies)
+	}
+	for line, id := range links.Dependencies {
+		if !want[id] {
+			t.Errorf("line %d links to unexpected %q", line, id)
+		}
+		if got, prefix := lines[line], "  • blocked by "+id; got != prefix {
+			t.Errorf("line %d links to %s but reads %q", line, id, got)
+		}
+	}
+}
+
 // With no lookup there is nothing to resolve against, so the lines keep their
 // bare form instead of calling every target unknown.
 func TestFormatIssueDetails_DependencyLinesWithoutLookup(t *testing.T) {
