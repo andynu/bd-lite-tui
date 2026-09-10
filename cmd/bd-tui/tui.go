@@ -1265,6 +1265,11 @@ func newTUI(opts tuiOptions) (*tui, error) {
 						if claimed {
 							msg += fmt.Sprintf(" and claimed it for %s", me)
 						}
+						// A status change leaves dependencies alone, so the
+						// state from before the reload still answers this.
+						if newStatus == "open" {
+							msg += stillBlockedNote(appState, issueID)
+						}
 						statusBar.SetText(successMsg(msg))
 						scheduleRefresh(issueID)
 					}

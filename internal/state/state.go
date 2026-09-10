@@ -26,6 +26,10 @@ type State struct {
 	// This is set by categorizeIssues() and used by IsEffectivelyBlocked()
 	effectivelyBlocked map[string]bool
 
+	// parentOf maps a child ID to the parent it inherits blocking from:
+	// explicit parent-child edges, then dotted IDs. Set by categorizeIssues.
+	parentOf map[string]string
+
 	// Tree collapse state - persists across tree rebuilds
 	// Maps issue ID to collapsed state (true = collapsed)
 	collapsedNodes map[string]bool
@@ -259,6 +263,7 @@ func (s *State) categorizeIssues() {
 
 	// Store the computed blocking state for use by IsEffectivelyBlocked()
 	s.effectivelyBlocked = blockedByIssueIDs
+	s.parentOf = parentMap
 
 	// Categorize each issue
 	for _, issue := range s.issues {
@@ -296,6 +301,37 @@ func (s *State) IsEffectivelyBlocked(issueID string) bool {
 	}
 	// Blocked by dependency (computed in categorizeIssues)
 	return s.effectivelyBlocked[issueID]
+}
+
+// OpenBlockers returns the issues holding issueID up through its own blocks
+// dependencies, in dependency order. A target that is closed or missing from
+// the store does not block, the same rule categorizeIssues applies.
+func (s *State) OpenBlockers(issueID string) []*parser.Issue {
+	issue := s.issuesByID[issueID]
+	if issue == nil {
+		return nil
+	}
+	var blockers []*parser.Issue
+	for _, dep := range issue.Dependencies {
+		if dep.Type != parser.DepBlocks {
+			continue
+		}
+		if target := s.issuesByID[dep.DependsOnID]; target != nil && target.Status != parser.StatusClosed {
+			blockers = append(blockers, target)
+		}
+	}
+	return blockers
+}
+
+// BlockedParent returns the parent issueID inherits dependency blocking from,
+// or "" when its parent does not block it. An explicit blocked status is not
+// inherited, so a parent that is only parked by hand returns "".
+func (s *State) BlockedParent(issueID string) string {
+	parent := s.parentOf[issueID]
+	if parent == "" || !s.effectivelyBlocked[parent] {
+		return ""
+	}
+	return parent
 }
 
 // applyFilters filters a list of issues based on active filters
