@@ -35,7 +35,7 @@ A powerful terminal user interface for the [bd-lite](https://github.com/andynu/b
 
 ### Visual Design
 - **Color-coded priorities** - Visual indicators for P0 (critical) through P4 (lowest)
-- **Status icons** - ● (ready), ○ (blocked by status), ◌ (blocked by a dependency), ◆ (in-progress), · (closed)
+- **Status icons** - ● (ready), ○ (blocked by status), ◌ (blocked by a dependency), ◆ (in-progress), ✓ (closed)
 - **Type emoji** - 🐛 (bug), ✨ (feature), 📋 (task), 🎯 (epic), 🔧 (chore)
 - **Syntax highlighting** - Color-coded dependencies, labels, and metadata
 - **Responsive layout** - Side-by-side above 90 columns; below that the list and detail each take the full screen and Tab/Enter/ESC page between them
@@ -270,7 +270,7 @@ Leave empty to clear all filters.
 - ○ (yellow) - Status set to blocked
 - ◌ (yellow) - Open, but blocked by a dependency (or by a blocked parent)
 - ◆ (blue) - In progress
-- · (gray) - Closed
+- ✓ (gray) - Closed
 
 ## Priority Colors
 

@@ -177,7 +177,7 @@ const helpText = `[yellow::b]bd-tui Keyboard Shortcuts[-::-]
   ○           Blocked (status)
   ◌           Blocked by a dependency
   ◆           In Progress
-  ·           Other
+  ✓           Closed
 
 [cyan::b]Priority Colors[-::-]
   [red]P0[-]          Critical
@@ -191,7 +191,7 @@ const helpText = `[yellow::b]bd-tui Keyboard Shortcuts[-::-]
   [gold]○[-]           Blocked (status)
   [gold]◌[-]           Blocked by a dependency
   [deepskyblue]◆[-]           In Progress
-  [gray]·[-]           Closed`
+  [gray]✓[-]           Closed`
 
 // helpScrollPosition names where the reader is in the help body, in vim's
 // ruler vocabulary: All, Top, a percentage of the scrollable distance, Bot.
