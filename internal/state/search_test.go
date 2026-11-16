@@ -26,7 +26,7 @@ func TestFindIssueByQuery(t *testing.T) {
 		{"bare suffix", "15q", "wiser-15q"},
 		{"full id", "wiser-15q", "wiser-15q"},
 		{"uppercase suffix", "15Q", "wiser-15q"},
-		{"prefix only matches first", "wiser", "wiser-15q"},
+		{"prefix only matches first in bd ready order (P1 before P2)", "wiser", "wiser-pk2"},
 		{"title substring", "rewrite", "wiser-15q"},
 		{"finds closed issue", "abc", "wiser-abc"},
 		{"no match", "zzz999", ""},

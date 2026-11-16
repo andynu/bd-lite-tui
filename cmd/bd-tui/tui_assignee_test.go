@@ -86,7 +86,8 @@ func TestAssigneeFilter_MineIncludesAgentValues(t *testing.T) {
 	h.typeRunes("mine")
 	h.key(tcell.KeyEnter)
 
-	if got, want := h.issueIDs(), []string{"tui-mine", "tui-agent"}; !reflect.DeepEqual(got, want) {
+	// Equal priority and age, so the id breaks the tie.
+	if got, want := h.issueIDs(), []string{"tui-agent", "tui-mine"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("filtered list is %v, want %v", got, want)
 	}
 	if text := h.statusText(); !strings.Contains(text, "Assignee: mine") {
@@ -108,7 +109,8 @@ func TestAssigneeFilter_MineMatchesAFullName(t *testing.T) {
 	h.typeRunes("mine")
 	h.key(tcell.KeyEnter)
 
-	if got, want := h.issueIDs(), []string{"tui-mine", "tui-agent"}; !reflect.DeepEqual(got, want) {
+	// Equal priority and age, so the id breaks the tie.
+	if got, want := h.issueIDs(), []string{"tui-agent", "tui-mine"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("filtered list is %v, want %v", got, want)
 	}
 }

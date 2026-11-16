@@ -161,7 +161,7 @@ func New() *State {
 
 // LoadIssues updates the state with a new set of issues
 func (s *State) LoadIssues(issues []*parser.Issue) {
-	s.issues = issues
+	s.issues = inBdReadyOrder(issues)
 	s.issuesByID = make(map[string]*parser.Issue)
 
 	// Clear categorized lists
@@ -182,6 +182,26 @@ func (s *State) LoadIssues(issues []*parser.Issue) {
 	if s.viewMode == ViewTree {
 		s.buildDependencyTree()
 	}
+}
+
+// inBdReadyOrder returns a copy of issues sorted the way bd ready and bd list
+// print them: priority, then oldest first, then id so equal rows never swap
+// on reload. The file's own order is bd-lite's write order (author, then id),
+// which means nothing to a reader, so every group and tree root takes this
+// one instead.
+func inBdReadyOrder(issues []*parser.Issue) []*parser.Issue {
+	sorted := append([]*parser.Issue(nil), issues...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		a, b := sorted[i], sorted[j]
+		if a.Priority != b.Priority {
+			return a.Priority < b.Priority
+		}
+		if !a.CreatedAt.Equal(b.CreatedAt) {
+			return a.CreatedAt.Before(b.CreatedAt)
+		}
+		return a.ID < b.ID
+	})
+	return sorted
 }
 
 // categorizeIssues separates issues into ready, blocked, in_progress, and closed
