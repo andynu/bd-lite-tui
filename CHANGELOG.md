@@ -5,6 +5,27 @@ All notable changes to bd-tui will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-11-16
+
+Requires bd-lite v0.1.0, its first tagged release. bd-tui still starts against an older or unrecognised bd, but says so.
+
+### Added
+
+- **bd version check**: at startup bd-tui runs `bd --version` and compares it with the range it supports (v0.1.0 up to the v0.1 minor line). A missing bd, one too old to report a version, an older build, or a newer minor release bd-tui has not been tested with each produce a `[bd: ...]` field after the issue count in the status bar. A compatible bd shows nothing. A missing bd used to be reported only on stderr, just before the TUI took over the screen
+- **bd update notice**: when bd reports that a newer release exists, the same field reads `[bd: vX available]`. It appears after the first bd command, since the startup check keeps bd's own update check off so launch never waits on GitHub
+
+### Changed
+
+- Issue groups and tree roots follow `bd ready` order (priority, then oldest first, then ID), instead of the order of `issues.jsonl`. bd-lite 0.1.0 writes that file by author and then ID, which put each group in author order and then in effectively random order. A bare-prefix search now jumps to the first match as the list draws it
+
+### Fixed
+
+- The dependency dialog (`D`) reported a failure after every successful add or remove, stayed open and skipped its refresh, because bd answers `dep add` and `dep remove` with a message instead of the changed issue
+- A failed bd command showed bd's update notice in the status bar instead of the error, because the notice comes first on stderr and the status bar is one line
+- The dependency dialog accepted an issue depending on itself, which bd-lite stores and which leaves the issue blocked for good
+- In tree view an epic inside another epic became its own root, and dropped out of the outer epic, whenever it happened to be built first
+- CI's lint job had failed since August on an unchecked error in a clipboard test
+
 ## [0.4.1] - 2026-09-10
 
 ### Fixed
