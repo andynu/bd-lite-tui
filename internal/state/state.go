@@ -831,12 +831,37 @@ func (s *State) buildDependencyTree() {
 		}
 	}
 
+	// An epic inside another open epic nests under it rather than standing as
+	// a root; otherwise whichever epic was built first would decide, and an
+	// inner epic built first drops out of its outer epic as already visited.
+	containedEpic := make(map[string]bool)
+	for _, epic := range epicRoots {
+		for _, child := range childrenMap[epic.ID] {
+			if child.IssueType == parser.TypeEpic && child.ID != epic.ID {
+				containedEpic[child.ID] = true
+			}
+		}
+	}
+
 	// Build tree recursively from roots
 	// First add epics (they get top priority)
 	visited := make(map[string]bool)
 	for _, epic := range epicRoots {
+		if containedEpic[epic.ID] {
+			continue
+		}
 		node := s.buildTreeNode(epic, 0, childrenMap, blockedByMap, visited)
 		if node != nil {
+			s.treeNodes = append(s.treeNodes, node)
+		}
+	}
+	// Epics that contain each other are all skipped above; the first one met
+	// here becomes the root and brings the rest in.
+	for _, epic := range epicRoots {
+		if visited[epic.ID] {
+			continue
+		}
+		if node := s.buildTreeNode(epic, 0, childrenMap, blockedByMap, visited); node != nil {
 			s.treeNodes = append(s.treeNodes, node)
 		}
 	}
