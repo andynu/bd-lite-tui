@@ -150,3 +150,30 @@ func TestFormatStatusBarReportsFiltersBeforeMouseMode(t *testing.T) {
 		t.Errorf("fields that explain missing rows render after mouse mode: %q", line)
 	}
 }
+
+// A bd outside the supported range is reported right after the issue count,
+// ahead of everything a narrow terminal might clip.
+func TestFormatStatusBarWarnsAboutBdBeforeFocus(t *testing.T) {
+	line := formatStatusBar(statusBarFields{
+		IssueCount: 3,
+		Focus:      "List",
+		Layout:     "Columns",
+		BdWarning:  "v0.2.0 untested, bd-tui knows v0.1",
+	})
+	count := strings.Index(line, "(3 issues)")
+	bd := strings.Index(line, "bd: v0.2.0 untested, bd-tui knows v0.1")
+	focus := strings.Index(line, "[Focus: List]")
+	if bd < 0 {
+		t.Fatalf("status line is missing the bd warning: %q", line)
+	}
+	if bd < count || bd > focus {
+		t.Errorf("bd warning should sit between the count and focus: %q", line)
+	}
+}
+
+func TestFormatStatusBarSilentWhenBdIsFine(t *testing.T) {
+	line := formatStatusBar(statusBarFields{Focus: "List", Layout: "Columns"})
+	if strings.Contains(line, "bd:") {
+		t.Errorf("status line warns about bd with nothing to say: %q", line)
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/andynu/bd-lite-tui/internal/bdversion"
 	"github.com/andynu/bd-lite-tui/internal/clipboard"
 	"github.com/andynu/bd-lite-tui/internal/config"
 	"github.com/andynu/bd-lite-tui/internal/formatting"
@@ -75,6 +76,10 @@ type tuiOptions struct {
 	// View is the view mode to start in (the --view flag). The zero value is
 	// state.ViewList.
 	View state.ViewMode
+
+	// BdVersion is the verdict on the bd on PATH, detected once at startup.
+	// The zero value is unchecked and shows nothing.
+	BdVersion bdversion.Result
 
 	// Screen, when non-nil, is used instead of a real terminal screen.
 	// Tests pass a tcell SimulationScreen.
@@ -295,6 +300,8 @@ func newTUI(opts tuiOptions) (*tui, error) {
 			EmphasisColor: formatting.GetEmphasisColor(),
 			Location:      beadsLabel,
 			IssueCount:    visibleCount,
+			BdWarning:     opts.BdVersion.Warning(),
+			WarningColor:  formatting.GetWarningColor(),
 			Focus:         focusStr,
 			View:          appState.GetViewMode().String(),
 			Layout:        layoutStr,

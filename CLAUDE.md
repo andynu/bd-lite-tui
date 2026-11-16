@@ -190,6 +190,7 @@ bd-lite-tui/
 │   │   └── dialog_*.go      # One file per modal (create, edit, close, ...)
 │   └── list-themes/     # Prints the registered themes
 ├── internal/
+│   ├── bdversion/       # Is the bd on PATH one bd-tui supports
 │   ├── clipboard/       # xclip/xsel/wl-copy wrapper, plus an OSC 52 route
 │   ├── config/          # ~/.bd-tui/config.json and per-repo collapse state
 │   ├── formatting/      # Colors, status glyphs, detail-panel rendering
@@ -453,6 +454,20 @@ returns no error when it does nothing.
   first inside a bucket, ties broken by ID so a rebuild does not shuffle rows
   under the cursor. `now` is a parameter, never a clock read.
 - No UI concerns - pure business logic
+
+**`internal/bdversion/`** - Supported bd range
+- `Classify(output, err)` turns `bd --version` into a `Result`: Compatible,
+  Missing, Unknown (a pre-v0.1.0 bd rejects the flag), TooOld or Newer. Pure;
+  `detectBdVersion` in `bd_helpers.go` runs the command once at startup with
+  `BD_NO_UPDATE_CHECK=1` and a 2s timeout, and `main.go` passes the result
+  through `tuiOptions.BdVersion`
+- `Minimum` is v0.1.0; `TestedThrough` is a major.minor (`v0.1`), because a 0.x
+  minor release may change the CLI. Raise `TestedThrough` only after running the
+  integration tests (`go test ./cmd/bd-tui/`, not `-short`) against the new bd;
+  `TestDetectBdVersion_Integration` fails until then
+- `Result.Warning()` is "" when compatible and for the zero value, so tests and
+  a healthy bd show nothing; otherwise it is the `[bd: ...]` status-bar field,
+  drawn right after the issue count
 
 **`internal/identity/`** - Who the TUI acts as
 - `Resolve(dir)` reads `git user.name`, then `$USER` — the tail of the chain

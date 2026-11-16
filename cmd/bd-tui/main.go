@@ -119,11 +119,15 @@ func main() {
 	// directory, not the file inode) picks the file up when bd first writes it.
 	jsonlPath := filepath.Join(beadsDir, "issues.jsonl")
 
+	bdVersion := detectBdVersion()
+	log.Printf("bd version: %q (status %d)", bdVersion.Version, bdVersion.Status)
+
 	tuiApp, err := newTUI(tuiOptions{
 		BeadsDir:  beadsDir,
 		JSONLPath: jsonlPath,
 		IssueID:   *issueID,
 		View:      initialView,
+		BdVersion: bdVersion,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)

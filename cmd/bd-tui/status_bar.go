@@ -85,6 +85,13 @@ type statusBarFields struct {
 	// IssueCount is how many issues the list is showing.
 	IssueCount int
 
+	// BdWarning says what is wrong with the bd on PATH, empty when nothing
+	// is. It comes first among the fields because every edit depends on bd.
+	BdWarning string
+
+	// WarningColor colors BdWarning.
+	WarningColor string
+
 	// Focus is "List" or "Details". In the Paged layout only one of the two
 	// panels is mounted at all, which makes this the sole signal for which
 	// screen the user is looking at.
@@ -117,6 +124,10 @@ func formatStatusBar(f statusBarFields) string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "[%s]Beads TUI[-] - %s (%d issues)", f.EmphasisColor, f.Location, f.IssueCount)
+	if f.BdWarning != "" {
+		// "[bd: ...[]" for the same tag-escape reason as the layout field below.
+		fmt.Fprintf(&b, " [%s][bd: %s[][-]", f.WarningColor, f.BdWarning)
+	}
 	fmt.Fprintf(&b, " [Focus: %s]", f.Focus)
 	if f.View != "" {
 		fmt.Fprintf(&b, " [View: %s]", f.View)

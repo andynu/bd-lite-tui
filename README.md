@@ -58,6 +58,13 @@ go run ./cmd/bd-tui
 
 **Note:** This project is not yet published to a package registry. Install from source as shown above.
 
+bd-tui reads `.beads/issues.jsonl` itself but makes every change through the
+[bd-lite](https://github.com/andynu/bd-lite) `bd` command, and supports bd
+v0.1.x. At startup it runs `bd --version`. If bd is missing, older than
+v0.1.0 (those builds reject `--version`), or on a minor release bd-tui has not
+been tested with, the status bar says so in a `[bd: ...]` field. bd-tui still
+starts either way.
+
 ## Usage
 
 Navigate to a directory containing a `.beads` folder and run:

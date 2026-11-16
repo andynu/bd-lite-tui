@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/andynu/bd-lite-tui/internal/bdversion"
 	"github.com/andynu/bd-lite-tui/internal/parser"
 )
 
@@ -390,6 +391,17 @@ func TestExecBdJSON_Integration_CreateAndUpdate(t *testing.T) {
 
 	if closedIssue.Status != parser.StatusClosed {
 		t.Errorf("Closed issue status mismatch: got %q, want %q", closedIssue.Status, parser.StatusClosed)
+	}
+}
+
+// The installed bd is inside the supported range. When this fails after a bd
+// upgrade, run the suite against it and raise bdversion.TestedThrough.
+func TestDetectBdVersion_Integration(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	if got := detectBdVersion(); got.Status != bdversion.Compatible {
+		t.Errorf("detectBdVersion() = %+v, warning %q", got, got.Warning())
 	}
 }
 

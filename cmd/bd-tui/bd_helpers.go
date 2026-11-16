@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/andynu/bd-lite-tui/internal/bdversion"
 	"github.com/andynu/bd-lite-tui/internal/parser"
 )
 
@@ -99,6 +101,21 @@ func execBdJSONCmd(args ...string) (*BdCommandResult, error) {
 	}
 
 	return result, nil
+}
+
+// detectBdVersion asks the bd on PATH for its version. The update check is
+// switched off so startup makes no network call, and the timeout keeps a
+// wedged bd from holding the TUI back.
+func detectBdVersion() bdversion.Result {
+	if _, err := exec.LookPath("bd"); err != nil {
+		return bdversion.Classify("", bdversion.ErrNotFound)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "bd", "--version")
+	cmd.Env = append(os.Environ(), "BD_NO_UPDATE_CHECK=1")
+	out, err := cmd.Output()
+	return bdversion.Classify(string(out), err)
 }
 
 // parseBdJSON parses bd command JSON output, handling multiple response formats:
