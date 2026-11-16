@@ -7,6 +7,7 @@ require (
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/gdamore/tcell/v2 v2.8.1
 	github.com/rivo/tview v0.42.0
+	golang.org/x/mod v0.28.0
 	golang.org/x/term v0.28.0
 )
 
