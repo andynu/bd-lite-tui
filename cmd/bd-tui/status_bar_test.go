@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/andynu/bd-lite-tui/internal/bdversion"
 )
 
 func TestStatusLocation(t *testing.T) {
@@ -168,6 +170,27 @@ func TestFormatStatusBarWarnsAboutBdBeforeFocus(t *testing.T) {
 	}
 	if bd < count || bd > focus {
 		t.Errorf("bd warning should sit between the count and focus: %q", line)
+	}
+}
+
+// A compatibility problem outranks an available update; an update shows only
+// when bd is otherwise fine.
+func TestBdStatusWarning(t *testing.T) {
+	newer := bdversion.Result{Status: bdversion.Newer, Version: "v0.2.0"}
+	fine := bdversion.Result{Status: bdversion.Compatible, Version: "v0.1.0"}
+	for _, tc := range []struct {
+		r      bdversion.Result
+		latest string
+		want   string
+	}{
+		{fine, "", ""},
+		{fine, "v0.1.1", "v0.1.1 available"},
+		{bdversion.Result{}, "v0.1.1", "v0.1.1 available"},
+		{newer, "v0.3.0", "v0.2.0 untested, bd-tui knows v0.1"},
+	} {
+		if got := bdStatusWarning(tc.r, tc.latest); got != tc.want {
+			t.Errorf("bdStatusWarning(%+v, %q) = %q, want %q", tc.r, tc.latest, got, tc.want)
+		}
 	}
 }
 

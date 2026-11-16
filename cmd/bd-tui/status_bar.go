@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/andynu/bd-lite-tui/internal/bdversion"
 )
 
 // statusLocationWidth is the widest the .beads location may render. The fields
@@ -117,6 +119,18 @@ type statusBarFields struct {
 	// MouseEnabled reports the m toggle. Nothing depends on it being visible,
 	// so it sits at the end with the help hint.
 	MouseEnabled bool
+}
+
+// bdStatusWarning is the [bd: ...] field: a compatibility problem first, else
+// a newer release a bd update notice named, else nothing.
+func bdStatusWarning(r bdversion.Result, latest string) string {
+	if w := r.Warning(); w != "" {
+		return w
+	}
+	if latest != "" {
+		return latest + " available"
+	}
+	return ""
 }
 
 // formatStatusBar renders the status line.

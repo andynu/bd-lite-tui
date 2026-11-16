@@ -468,6 +468,12 @@ returns no error when it does nothing.
 - `Result.Warning()` is "" when compatible and for the zero value, so tests and
   a healthy bd show nothing; otherwise it is the `[bd: ...]` status-bar field,
   drawn right after the issue count
+- bd prints an update notice to stderr after every command once a newer
+  release exists. `bdStderrMessage` (`bd_helpers.go`) cuts it out of a failed
+  command's error text and `execBdJSONCmd` records the release it names, so
+  the same field reads `[bd: vX available]` when there is no compatibility
+  warning. The startup check runs with the notice off, so it appears after the
+  first edit, never at launch
 
 **`internal/identity/`** - Who the TUI acts as
 - `Resolve(dir)` reads `git user.name`, then `$USER` — the tail of the chain

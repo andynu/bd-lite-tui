@@ -534,6 +534,20 @@ func TestExecBdJSON_Integration_ErrorWithUpdateNotice(t *testing.T) {
 	if !strings.Contains(err.Error(), "no issue found") {
 		t.Errorf("error text lost the cause: %v", err)
 	}
+	if got := latestBdRelease(); got != "v9.9.9" {
+		t.Errorf("latestBdRelease() after a failed command = %q, want v9.9.9", got)
+	}
+
+	// A successful command carries the notice too, and its stderr is
+	// otherwise ignored.
+	recordBdRelease("")
+	if _, err := execBdJSONIssue("create", "Notice on success", "-p", "2"); err != nil {
+		t.Fatalf("bd create: %v", err)
+	}
+	if got := latestBdRelease(); got != "v9.9.9" {
+		t.Errorf("latestBdRelease() after a successful command = %q, want v9.9.9", got)
+	}
+	recordBdRelease("")
 }
 
 func TestExecBdJSON_ErrorHandling_InvalidCommand(t *testing.T) {

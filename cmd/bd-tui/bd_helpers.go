@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/andynu/bd-lite-tui/internal/bdversion"
@@ -67,6 +68,12 @@ func execBdJSONCmd(args ...string) (*BdCommandResult, error) {
 	cmd.Stderr = &stderr
 	err := cmd.Run()
 
+	// bd prints its update notice on success and failure alike.
+	errMessage, latest := bdStderrMessage(stderr.String())
+	if latest != "" {
+		recordBdRelease(latest)
+	}
+
 	// Check for timeout error specifically
 	if ctx.Err() == context.DeadlineExceeded {
 		cmdStr := "bd " + strings.Join(args, " ")
@@ -80,7 +87,7 @@ func execBdJSONCmd(args ...string) (*BdCommandResult, error) {
 			return nil, fmt.Errorf("bd %s failed: %s", args[0], result.Error)
 		}
 		// Fall back to stderr, then stdout
-		errOutput, _ := bdStderrMessage(stderr.String())
+		errOutput := errMessage
 		if errOutput == "" {
 			errOutput = strings.TrimSpace(stdout.String())
 		}
@@ -102,6 +109,26 @@ func execBdJSONCmd(args ...string) (*BdCommandResult, error) {
 	}
 
 	return result, nil
+}
+
+// bdRelease is the newer bd release the last update notice named. bd commands
+// run off the event loop, so it is guarded.
+var bdRelease struct {
+	sync.Mutex
+	latest string
+}
+
+func recordBdRelease(latest string) {
+	bdRelease.Lock()
+	bdRelease.latest = latest
+	bdRelease.Unlock()
+}
+
+// latestBdRelease is "" until a bd command prints an update notice.
+func latestBdRelease() string {
+	bdRelease.Lock()
+	defer bdRelease.Unlock()
+	return bdRelease.latest
 }
 
 // updateNoticeHead matches the first line of bd's update notice,

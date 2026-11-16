@@ -300,7 +300,7 @@ func newTUI(opts tuiOptions) (*tui, error) {
 			EmphasisColor: formatting.GetEmphasisColor(),
 			Location:      beadsLabel,
 			IssueCount:    visibleCount,
-			BdWarning:     opts.BdVersion.Warning(),
+			BdWarning:     bdStatusWarning(opts.BdVersion, latestBdRelease()),
 			WarningColor:  formatting.GetWarningColor(),
 			Focus:         focusStr,
 			View:          appState.GetViewMode().String(),
