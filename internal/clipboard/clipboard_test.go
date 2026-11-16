@@ -437,14 +437,19 @@ func TestRunCommandCapturesBothStreams(t *testing.T) {
 // to own the X selection) must not stall the copy.
 func TestRunCommandDoesNotBlockOnDaemonizedChild(t *testing.T) {
 	done := make(chan struct{})
+	var err error
 	go func() {
 		defer close(done)
 		// The backgrounded sleep inherits stdout/stderr and outlives the parent.
-		runCommand([]string{"sh", "-c", "sleep 30 & exit 0"}, nil, "")
+		_, _, err = runCommand([]string{"sh", "-c", "sleep 30 & exit 0"}, nil, "")
 	}()
 	select {
 	case <-done:
 	case <-time.After(10 * time.Second):
 		t.Fatal("runCommand blocked on a descriptor held by a daemonized child")
+	}
+	// The parent exits 0, so not waiting on the child must not read as failure.
+	if err != nil {
+		t.Errorf("runCommand: %v, want nil for a parent that exits 0", err)
 	}
 }
