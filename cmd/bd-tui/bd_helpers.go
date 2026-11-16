@@ -16,7 +16,10 @@ import (
 type BdCommandResult struct {
 	Issues   []parser.Issue   `json:"issues,omitempty"`
 	Comments []parser.Comment `json:"comments,omitempty"`
-	Error    string           `json:"error,omitempty"`
+	// Message is the whole answer for commands that change state without
+	// returning an issue: bd-lite's dep add and dep remove.
+	Message string `json:"message,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 // execBdJSON runs a bd command and parses its JSON response. It is a variable
@@ -102,6 +105,7 @@ func execBdJSONCmd(args ...string) (*BdCommandResult, error) {
 // - Array of issues: [{"id":"tui-123",...}]
 // - Single issue: {"id":"tui-123",...}
 // - Single comment: {"id":15,"issue_id":"tui-123",...}
+// - Message: {"message":"Added dependency: tui-123 depends on tui-456"}
 func parseBdJSON(data []byte) (*BdCommandResult, error) {
 	result := &BdCommandResult{}
 
@@ -132,7 +136,16 @@ func parseBdJSON(data []byte) (*BdCommandResult, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("unable to parse JSON as issue array, issue, or comment")
+	// Try parsing as a message: {"message":"Added dependency: ..."}
+	var message struct {
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(data, &message); err == nil && message.Message != "" {
+		result.Message = message.Message
+		return result, nil
+	}
+
+	return nil, fmt.Errorf("unable to parse JSON as issue array, issue, comment, or message")
 }
 
 // execBdJSONIssue is a convenience wrapper that executes a bd command and returns

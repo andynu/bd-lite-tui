@@ -631,6 +631,10 @@ func (h *harness) fakeBd(args ...string) (*BdCommandResult, error) {
 		return respond(args)
 	}
 
+	if len(args) == 4 && args[0] == "dep" {
+		return h.fakeDep(args[1], args[2], args[3])
+	}
+
 	if len(args) < 2 || args[0] != "update" {
 		return nil, fmt.Errorf("fake bd: unsupported command %q", strings.Join(args, " "))
 	}
@@ -665,6 +669,40 @@ func (h *harness) fakeBd(args ...string) (*BdCommandResult, error) {
 	h.writeJSONL()
 
 	return &BdCommandResult{Issues: []parser.Issue{*issue}}, nil
+}
+
+// fakeDep applies `bd dep add|remove <id> <target>` to the fixture and answers
+// the way bd-lite does: a message, not the changed issue.
+func (h *harness) fakeDep(verb, id, target string) (*BdCommandResult, error) {
+	issue := h.findIssue(id)
+	if issue == nil {
+		return nil, fmt.Errorf("issue not found: %s", id)
+	}
+	var msg string
+	switch verb {
+	case "add":
+		issue.Dependencies = append(issue.Dependencies, &parser.Dependency{
+			IssueID:     id,
+			DependsOnID: target,
+			Type:        parser.DepBlocks,
+			CreatedAt:   h.now(),
+		})
+		msg = fmt.Sprintf("Added dependency: %s depends on %s", id, target)
+	case "remove":
+		kept := issue.Dependencies[:0]
+		for _, dep := range issue.Dependencies {
+			if dep.DependsOnID != target {
+				kept = append(kept, dep)
+			}
+		}
+		issue.Dependencies = kept
+		msg = fmt.Sprintf("Removed dependency: %s no longer depends on %s", id, target)
+	default:
+		return nil, fmt.Errorf("fake bd: unsupported dep verb %q", verb)
+	}
+	issue.UpdatedAt = h.now()
+	h.writeJSONL()
+	return &BdCommandResult{Message: msg}, nil
 }
 
 // calls returns the recorded bd invocations.

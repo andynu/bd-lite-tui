@@ -108,6 +108,24 @@ func TestParseBdJSON_Comment(t *testing.T) {
 	}
 }
 
+// bd-lite's dep add and dep remove answer with a message object.
+func TestParseBdJSON_Message(t *testing.T) {
+	jsonData := `{
+  "message": "Added dependency: tui-aaa depends on tui-bbb"
+}`
+
+	result, err := parseBdJSON([]byte(jsonData))
+	if err != nil {
+		t.Fatalf("parseBdJSON failed: %v", err)
+	}
+	if result.Message != "Added dependency: tui-aaa depends on tui-bbb" {
+		t.Errorf("Message = %q", result.Message)
+	}
+	if len(result.Issues) != 0 || len(result.Comments) != 0 {
+		t.Errorf("a message parsed as issues %v / comments %v", result.Issues, result.Comments)
+	}
+}
+
 func TestParseBdJSON_InvalidJSON(t *testing.T) {
 	jsonData := `{invalid json`
 
@@ -372,6 +390,47 @@ func TestExecBdJSON_Integration_CreateAndUpdate(t *testing.T) {
 
 	if closedIssue.Status != parser.StatusClosed {
 		t.Errorf("Closed issue status mismatch: got %q, want %q", closedIssue.Status, parser.StatusClosed)
+	}
+}
+
+// The dependency dialog's two calls, against the real bd, return what the
+// dialog accepts as success.
+func TestExecBdJSON_Integration_DepAddRemove(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get working directory: %v", err)
+	}
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatalf("Failed to chdir to test dir: %v", err)
+	}
+	defer func() {
+		_ = os.Chdir(origDir)
+	}()
+
+	if err := exec.Command("bd", "init", "--prefix", "test").Run(); err != nil {
+		t.Fatalf("Failed to init test directory: %v", err)
+	}
+	a, err := execBdJSONIssue("create", "Blocked one", "-p", "2")
+	if err != nil {
+		t.Fatalf("Failed to create issue: %v", err)
+	}
+	b, err := execBdJSONIssue("create", "Blocker", "-p", "2")
+	if err != nil {
+		t.Fatalf("Failed to create issue: %v", err)
+	}
+
+	for _, verb := range []string{"add", "remove"} {
+		result, err := execBdJSON("dep", verb, a.ID, b.ID)
+		if err != nil {
+			t.Fatalf("bd dep %s: %v", verb, err)
+		}
+		if result.Message == "" {
+			t.Errorf("bd dep %s returned no message: %+v", verb, result)
+		}
 	}
 }
 

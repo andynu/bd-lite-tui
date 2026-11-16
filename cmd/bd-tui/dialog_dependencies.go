@@ -73,12 +73,13 @@ func (h *DialogHelpers) ShowDependencyDialog() {
 
 		issueID := issue.ID // Capture before potential refresh
 		log.Printf("BD COMMAND: Adding dependency: bd dep add %s %s", issueID, targetID)
-		updatedIssue, err := execBdJSONIssue("dep", "add", issueID, targetID)
+		// bd answers dep add with a message, not the issue, so success is no error.
+		_, err := execBdJSON("dep", "add", issueID, targetID)
 		if err != nil {
 			log.Printf("BD COMMAND ERROR: Dependency add failed: %v", err)
 			h.StatusBar.SetText(fmt.Sprintf("[%s]Error adding dependency: %v[-]", formatting.GetErrorColor(), err))
 		} else {
-			log.Printf("BD COMMAND: Dependency added successfully to %s", updatedIssue.ID)
+			log.Printf("BD COMMAND: Dependency added successfully to %s", issueID)
 			h.Confirm(fmt.Sprintf("[%s]✓ Now [%s]blocked by[-] [%s]%s[-][-]", formatting.GetSuccessColor(), formatting.GetEmphasisColor(), formatting.GetAccentColor(), targetID))
 			h.Pages.RemovePage("dependency_dialog")
 			h.App.SetFocus(h.IssueList)
@@ -97,13 +98,13 @@ func (h *DialogHelpers) ShowDependencyDialog() {
 			form.AddButton(buttonLabel, func() {
 				issueID := issue.ID
 				log.Printf("BD COMMAND: Removing dependency: bd dep remove %s %s", issueID, depToRemove.DependsOnID)
-				updatedIssue, err := execBdJSONIssue("dep", "remove", issueID, depToRemove.DependsOnID)
+				_, err := execBdJSON("dep", "remove", issueID, depToRemove.DependsOnID)
 				if err != nil {
 					log.Printf("BD COMMAND ERROR: Dependency remove failed: %v", err)
 					h.StatusBar.SetText(fmt.Sprintf("[%s]Error removing dependency: %v[-]", formatting.GetErrorColor(), err))
 				} else {
 					removePhrase := depTypeToPhrase(depToRemove.Type)
-					log.Printf("BD COMMAND: Dependency removed successfully from %s", updatedIssue.ID)
+					log.Printf("BD COMMAND: Dependency removed successfully from %s", issueID)
 					h.Confirm(fmt.Sprintf("[%s]✓ No longer [%s]%s[-] [%s]%s[-][-]", formatting.GetSuccessColor(), formatting.GetEmphasisColor(), removePhrase, formatting.GetAccentColor(), depToRemove.DependsOnID))
 					h.Pages.RemovePage("dependency_dialog")
 					h.App.SetFocus(h.IssueList)
