@@ -60,6 +60,28 @@ func TestDependencyDialog_RemoveConfirmsAndCloses(t *testing.T) {
 	})
 }
 
+// bd-lite stores a self-dependency, which blocks the issue for good, so the
+// dialog refuses it without calling bd.
+func TestDependencyDialog_RefusesASelfDependency(t *testing.T) {
+	h := newHarness(t, basicIssues())
+	h.selectIssue("tui-aaa")
+
+	h.typeRunes("D")
+	h.typeRunes("tui-aaa")
+	h.key(tcell.KeyTab)
+	h.key(tcell.KeyEnter)
+
+	if calls := h.calls(); len(calls) != 0 {
+		t.Fatalf("a self-dependency reached bd: %v", calls)
+	}
+	if got := h.frontPage(); got != "dependency_dialog" {
+		t.Fatalf("dialog closed on a refused self-dependency: front page %q", got)
+	}
+	if status := h.statusText(); !strings.Contains(status, "cannot depend on itself") {
+		t.Errorf("status does not explain the refusal: %q", status)
+	}
+}
+
 // A dep command that bd rejects keeps the dialog up and says why.
 func TestDependencyDialog_FailureKeepsDialogOpen(t *testing.T) {
 	h := newHarness(t, basicIssues())

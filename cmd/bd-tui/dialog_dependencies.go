@@ -65,6 +65,12 @@ func (h *DialogHelpers) ShowDependencyDialog() {
 			return
 		}
 
+		// bd-lite stores a self-dependency, and the issue then blocks itself.
+		if targetID == issue.ID {
+			h.StatusBar.SetText(fmt.Sprintf("[%s]Error: %s cannot depend on itself[-]", formatting.GetErrorColor(), targetID))
+			return
+		}
+
 		// Validate target issue exists
 		if h.AppState.GetIssueByID(targetID) == nil {
 			h.StatusBar.SetText(fmt.Sprintf("[%s]Error: Issue %s not found[-]", formatting.GetErrorColor(), targetID))
