@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/andynu/bd-lite-tui/internal/bdversion"
 	"github.com/andynu/bd-lite-tui/internal/parser"
@@ -460,6 +461,78 @@ func TestExecBdJSON_ErrorHandling_InvalidIssueID(t *testing.T) {
 	// Error message should be informative
 	if err != nil && !strings.Contains(err.Error(), "bd update failed") {
 		t.Errorf("Error message doesn't indicate bd update failure: %v", err)
+	}
+}
+
+// bd prints its update notice to stderr ahead of the error, on failure as
+// well as success. The error text must keep the cause and drop the notice.
+func TestBdStderrMessage_DropsTheUpdateNotice(t *testing.T) {
+	stderr := "bd: v9.9.9 is available (you have v0.1.0). To update:\n" +
+		"  curl -fsSL https://github.com/andynu/bd-lite/releases/download/v9.9.9/bd-linux-amd64 -o /home/x/bd.new && chmod +x /home/x/bd.new && mv /home/x/bd.new /home/x/bd\n" +
+		"Error: no issue found matching 'demo-zzz'\n"
+	msg, latest := bdStderrMessage(stderr)
+	if msg != "Error: no issue found matching 'demo-zzz'" {
+		t.Errorf("message = %q", msg)
+	}
+	if latest != "v9.9.9" {
+		t.Errorf("latest = %q, want v9.9.9", latest)
+	}
+}
+
+func TestBdStderrMessage_NonLinuxNoticeForm(t *testing.T) {
+	stderr := "bd: v9.9.9 is available (you have v0.1.0). To update:\n" +
+		"  see https://github.com/andynu/bd-lite/releases/tag/v9.9.9\n"
+	msg, latest := bdStderrMessage(stderr)
+	if msg != "" || latest != "v9.9.9" {
+		t.Errorf("got (%q, %q), want (\"\", \"v9.9.9\")", msg, latest)
+	}
+}
+
+func TestBdStderrMessage_PlainErrorUntouched(t *testing.T) {
+	msg, latest := bdStderrMessage("Error: no issue found matching 'x'\n")
+	if msg != "Error: no issue found matching 'x'" || latest != "" {
+		t.Errorf("got (%q, %q)", msg, latest)
+	}
+}
+
+// Against the real bd with a newer release seeded in its cache: a failed
+// command reports its cause, not the notice.
+func TestExecBdJSON_Integration_ErrorWithUpdateNotice(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	cache := t.TempDir()
+	if err := os.MkdirAll(cache+"/bd-lite", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	seed := `{"checked_at":"` + time.Now().UTC().Format(time.RFC3339) + `","latest":"v9.9.9"}`
+	if err := os.WriteFile(cache+"/bd-lite/latest.json", []byte(seed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CACHE_HOME", cache)
+	t.Setenv("BD_NO_UPDATE_CHECK", "")
+
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(origDir) }()
+	if err := exec.Command("bd", "init", "--prefix", "test").Run(); err != nil {
+		t.Fatalf("bd init: %v", err)
+	}
+
+	_, err = execBdJSONIssue("update", "test-zzz", "--priority", "1")
+	if err == nil {
+		t.Fatal("expected an error updating a missing issue")
+	}
+	if strings.Contains(err.Error(), "is available") {
+		t.Errorf("error text carries the update notice: %v", err)
+	}
+	if !strings.Contains(err.Error(), "no issue found") {
+		t.Errorf("error text lost the cause: %v", err)
 	}
 }
 

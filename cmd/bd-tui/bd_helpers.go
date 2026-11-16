@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 
@@ -79,7 +80,7 @@ func execBdJSONCmd(args ...string) (*BdCommandResult, error) {
 			return nil, fmt.Errorf("bd %s failed: %s", args[0], result.Error)
 		}
 		// Fall back to stderr, then stdout
-		errOutput := strings.TrimSpace(stderr.String())
+		errOutput, _ := bdStderrMessage(stderr.String())
 		if errOutput == "" {
 			errOutput = strings.TrimSpace(stdout.String())
 		}
@@ -101,6 +102,33 @@ func execBdJSONCmd(args ...string) (*BdCommandResult, error) {
 	}
 
 	return result, nil
+}
+
+// updateNoticeHead matches the first line of bd's update notice,
+// "bd: v0.2.0 is available (you have v0.1.0). To update:". Its instructions
+// follow on indented lines.
+var updateNoticeHead = regexp.MustCompile(`^bd: (v\S+) is available \(you have \S+\)\. To update:$`)
+
+// bdStderrMessage splits bd's stderr into the command's own message and the
+// newer release its update notice names ("" when there is none). bd prints the
+// notice before its "Error:" line, so taken whole the stderr leads with the
+// notice and a one-row status bar never reaches the cause.
+func bdStderrMessage(stderr string) (message, latest string) {
+	var kept []string
+	inNotice := false
+	for _, line := range strings.Split(stderr, "\n") {
+		if m := updateNoticeHead.FindStringSubmatch(line); m != nil {
+			latest = m[1]
+			inNotice = true
+			continue
+		}
+		if inNotice && strings.HasPrefix(line, "  ") {
+			continue
+		}
+		inNotice = false
+		kept = append(kept, line)
+	}
+	return strings.TrimSpace(strings.Join(kept, "\n")), latest
 }
 
 // detectBdVersion asks the bd on PATH for its version. The update check is
